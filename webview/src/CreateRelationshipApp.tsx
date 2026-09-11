@@ -41,6 +41,7 @@ import { defineUiMessages, invariantText, useUiMessages } from './i18n/uiMessage
 const MESSAGES = defineUiMessages(
   'relationshipEditor',
   {
+    readOnly: 'Automatic dependency — derived from Macro sources (read-only).',
     created: 'Created relationship "{id}".', updated: 'Updated relationship "{id}".',
     endpoint: '{message} (endpoint: {endpoint})', invalid: 'Invalid: {reason}',
     metadataInvalid: 'Metadata is not valid JSON: {error}', edit: 'Edit Relationship',
@@ -55,6 +56,7 @@ const MESSAGES = defineUiMessages(
     saving: 'Saving…', saveChanges: 'Save Changes'
   },
   {
+    readOnly: '自动依赖关系 — 派生自 Macro 来源（只读）。',
     created: '已创建关系“{id}”。', updated: '已更新关系“{id}”。',
     endpoint: '{message}（端点：{endpoint}）', invalid: '无效：{reason}',
     metadataInvalid: '元数据不是有效的 JSON：{error}', edit: '编辑关系',
@@ -84,6 +86,7 @@ interface ContextMessage {
   id?: string;
   existing?: RelationshipData | null;
   relationshipRevision?: string;
+  readOnly?: boolean;
   targetState?: 'found' | 'notFound';
   entryPool: Array<{ id: string; title: Localized<string, string> }>;
   existingIds: string[];
@@ -172,6 +175,7 @@ export function CreateRelationshipApp(): React.ReactElement {
   const [metadata, setMetadata] = useState('');
   const [entryPool, setEntryPool] = useState<EntryOption[]>([]);
   const [existingIds, setExistingIds] = useState<string[]>([]);
+  const [readOnly, setReadOnly] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState<Banner | null>(null);
@@ -185,7 +189,7 @@ export function CreateRelationshipApp(): React.ReactElement {
   const draftKeyRef = useRef(draftKey);
   draftKeyRef.current = draftKey;
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || readOnly) return;
     const restored = loadDraft<{
       id: string;
       from: string;
@@ -203,7 +207,7 @@ export function CreateRelationshipApp(): React.ReactElement {
     setTo(restored.to);
     setLabel(restored.label);
     setMetadata(restored.metadata);
-  }, [draftKey, loaded]);
+  }, [draftKey, loaded, readOnly]);
 
   usePersistedDraft(
     apiRef.current,
@@ -216,7 +220,7 @@ export function CreateRelationshipApp(): React.ReactElement {
       metadata,
       expectedRevision: mode === 'edit' ? revisionRef.current : undefined
     },
-    loaded && formDirty
+    loaded && formDirty && !readOnly
   );
 
   useEffect(() => {
@@ -228,6 +232,7 @@ export function CreateRelationshipApp(): React.ReactElement {
       switch (msg.type) {
         case 'context': {
           setMode(msg.mode);
+          setReadOnly(msg.readOnly === true);
           setTargetState(msg.mode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
           setTargetId(msg.mode === 'edit' ? (msg.id ?? msg.existing?.id ?? '') : '');
           const pool: EntryOption[] = msg.entryPool.map((e) => ({
@@ -335,7 +340,7 @@ export function CreateRelationshipApp(): React.ReactElement {
   }
 
   const canSubmit =
-    targetState !== 'notFound' &&
+    !readOnly && targetState !== 'notFound' &&
     loaded &&
     !busy &&
     trimmedId.length > 0 &&
@@ -418,6 +423,8 @@ export function CreateRelationshipApp(): React.ReactElement {
         }}
       />
 
+      {readOnly && <p role="status">{t('readOnly')}</p>}
+      <fieldset disabled={readOnly} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <div style={ROW_STYLE}>
         <label htmlFor="rel-id" style={LABEL_STYLE}>
           {t(mode === 'edit' ? 'idReadonly' : 'idRequired')}
@@ -519,6 +526,7 @@ export function CreateRelationshipApp(): React.ReactElement {
         ) : null}
       </div>
 
+      </fieldset>
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
         <Button
           type="button"

@@ -20,6 +20,7 @@ const entry = (id: string, snl: string): EntryData => ({
 
 const macro = (name: string, sources: string[]): MacroPackageEntry => ({
   name,
+  kind: 'const',
   description: '',
   source: { entries: sources, urls: [] },
   dynamic_arity: false,
@@ -40,6 +41,12 @@ const auto = (id: string, from: string, to: string, label = 'depends'): Relation
 });
 
 describe('scoped dependency relationship reconciliation', () => {
+  it('does not mistake a duplicate manual direct edge for a composite path', () => {
+    const result = reconcileDependencyRelationships(
+      [entry('a', 'm'), entry('b', '')], { m: macro('m', ['b']) },
+      [{ id: 'manual', from: 'a', to: 'b', label: 'depends', metadata: null }], { entryIds: null });
+    expect(result.relationships.find(r => r.id !== 'manual')?.metadata).toMatchObject({ isAtomic: true });
+  });
   it('replaces only the saved Entry system rows and preserves every other row deeply', () => {
     const customDepends: RelationshipData = {
       id: 'custom-depends',

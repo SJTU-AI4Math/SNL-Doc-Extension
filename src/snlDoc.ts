@@ -1,4 +1,9 @@
-import { extractSnlReferences } from './snlReferences';
+import { clearCache } from './derivedCache';
+import { readPageRankCache } from './pageRankCache';
+import type { PageRankResult } from './pageRank';
+export { computePageRank } from './pageRank';
+export type { PageRankResult } from './pageRank';
+import { readDependencyCache, mergeDependencyRelationships, isAutomaticDependency, type DependencyGenReport, type DependencyScope } from './dependencyCache';
 import { assertTableRendererTransport } from './blockRendererSpec';
 import { createHash, randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
@@ -3720,14 +3725,14 @@ export async function readOverview(
       : Promise.resolve(normalizeConfig(operationSnapshot.config))
     : readJson<unknown>(configUri(workspaceRoot)).then((raw) => normalizeConfig(raw));
   const discoveredPromise = listLibraries(workspaceRoot);
-  const relationshipsPromise = readRelationships(workspaceRoot);
+  const relationshipsPromise = readAuthoredRelationships(workspaceRoot);
   const config = await configPromise;
   const entityMode = typeof config?.version === 'string' &&
     usesCurrentEntityStorageDataVersion(config.version);
   const entitySnapshot: EntityStorageSnapshot | undefined = entityMode
     ? operationSnapshot?.entities
     : undefined;
-  const [entries, discovered, packageNames, relationships] = await Promise.all([
+  const [entries, discovered, packageNames, authoredRelationships] = await Promise.all([
     entitySnapshot
       ? Promise.resolve(entitySnapshot.entries.map(({ entry }) => entry as unknown as EntryData))
       : readEntries(workspaceRoot, entityMode),
@@ -3918,6 +3923,12 @@ export async function readOverview(
       ? [{ id: UNPACKAGED_PACKAGE_ID, name: UNPACKAGED_PACKAGE_ID, description: '', entryCount: entries.length }]
       : [];
   entryPackages.sort((left, right) => left.id.localeCompare(right.id));
+  // Reuse precisely the Entries/active Macro sources displayed in this
+  // overview (including operation snapshots), rather than rereading them.
+  const generated = await readDependencyCache(workspaceRoot.fsPath, {
+    entries, macros: metricMacroSources, relationships: authoredRelationships
+  });
+  const relationships = mergeDependencyRelationships(authoredRelationships, generated);
 
   return {
     hasSnlDoc: true,
@@ -7293,11 +7304,39 @@ const RELATIONSHIPS_FILE_VERSION = 1;
  * callers cannot mistake corruption for a valid graph with missing edges.
  */
 export async function readRelationships(
-  workspaceRoot: vscode.Uri
+  workspaceRoot: vscode.Uri,
+  snapshot?: { entries: readonly EntryData[]; macros: Readonly<Record<string, MacroPackageEntry>> }
 ): Promise<RelationshipData[]> {
+  // Authoring is strict and read first: derived recovery must never mask a
+  // corrupt relationship pool. Writers must use readAuthoredRelationships.
+  const authored = await readAuthoredRelationships(workspaceRoot);
+  const [entries, macros] = snapshot ? [snapshot.entries, snapshot.macros] : await Promise.all([
+    readEntries(workspaceRoot), readAllMacros(workspaceRoot)
+  ]);
+  const generated = await readDependencyCache(workspaceRoot.fsPath, { entries, macros, relationships: authored });
+  return mergeDependencyRelationships(authored, generated);
+}
+
+/** Query one workspace-global metric, never a Library or filtered subgraph.
+ * A supplied snapshot MUST contain all workspace Entries and composed edges. */
+export async function readGlobalPageRank(
+  root: vscode.Uri,
+  snapshot?: { entries: readonly EntryData[]; relationships: readonly RelationshipData[] }
+): Promise<PageRankResult> {
+  if (snapshot) return readPageRankCache(root.fsPath, snapshot.entries, snapshot.relationships);
+  const [entries, macros] = await Promise.all([readEntries(root), readAllMacros(root)]);
+  const relationships = await readRelationships(root, { entries, macros });
+  return readPageRankCache(root.fsPath, entries, relationships);
+}
+
+/** Raw Authoring view for CAS/mutation paths, including untouched legacy rows. */
+export async function readAuthoredRelationships(workspaceRoot: vscode.Uri): Promise<RelationshipData[]> {
   const uri = relationshipsUri(workspaceRoot);
   if (!(await exists(uri))) return [];
-  const raw = await readJson<unknown>(uri);
+  return parseAuthoredRelationships(await readJson<unknown>(uri));
+}
+
+function parseAuthoredRelationships(raw: unknown): RelationshipData[] {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error('relationships.json must be an object wrapper.');
   }
@@ -7374,6 +7413,7 @@ export async function addRelationship(
   const from = typeof rel?.from === 'string' ? rel.from.trim() : '';
   const to = typeof rel?.to === 'string' ? rel.to.trim() : '';
   const label = typeof rel?.label === 'string' ? rel.label.trim() : '';
+  if (isAutomaticDependency({ label, metadata: rel?.metadata })) return { status: 'invalid', message: 'Automatic dependencies are derived and read-only.' };
   if (!id) return { status: 'invalid', message: 'id is required' };
   if (!from) return { status: 'invalid', message: 'from is required' };
   if (!to) return { status: 'invalid', message: 'to is required' };
@@ -7384,8 +7424,8 @@ export async function addRelationship(
   if (!pool.has(from)) return { status: 'unknownEndpoint', endpoint: 'from', id: from };
   if (!pool.has(to)) return { status: 'unknownEndpoint', endpoint: 'to', id: to };
 
-  const list = await readRelationships(workspaceRoot);
-  if (list.some((r) => r.id === id)) {
+  const list = await readAuthoredRelationships(workspaceRoot);
+  if (list.some((r) => r.id === id) || (await readRelationships(workspaceRoot)).some(r => r.id === id)) {
     return { status: 'duplicate', id };
   }
   const record: RelationshipData = {
@@ -7443,13 +7483,16 @@ export async function updateRelationship(
   if (!pool.has(from)) return { status: 'unknownEndpoint', endpoint: 'from', id: from };
   if (!pool.has(to)) return { status: 'unknownEndpoint', endpoint: 'to', id: to };
 
-  const list = await readRelationships(workspaceRoot);
+  const list = await readAuthoredRelationships(workspaceRoot);
   const idx = list.findIndex((r) => r.id === targetId);
+  const target = idx >= 0 ? list[idx] : (await readRelationships(workspaceRoot)).find(r => r.id === targetId);
+  if (target && isAutomaticDependency(target)) return { status: 'invalid', message: 'Automatic dependencies are derived and read-only.' };
   if (idx < 0) return { status: 'notFound', id: targetId };
   if (typeof expectedRevision !== 'string' || entityRevision(list[idx]) !== expectedRevision) {
     return { status: 'conflict', id: targetId };
   }
 
+  if (isAutomaticDependency({ label, metadata: input.metadata })) return { status: 'invalid', message: 'Automatic dependencies are derived and read-only.' };
   const next = list.slice();
   next[idx] = {
     ...list[idx],
@@ -7491,8 +7534,10 @@ export async function deleteRelationship(
   }
   const targetId = (id ?? '').trim();
   if (!targetId) return { status: 'invalid', message: 'id is required' };
-  const list = await readRelationships(workspaceRoot);
+  const list = await readAuthoredRelationships(workspaceRoot);
   const idx = list.findIndex((r) => r.id === targetId);
+  const target = idx >= 0 ? list[idx] : (await readRelationships(workspaceRoot)).find(r => r.id === targetId);
+  if (target && isAutomaticDependency(target)) return { status: 'invalid', message: 'Automatic dependencies are derived and read-only.' };
   if (idx < 0) return { status: 'notFound', id: targetId };
   const next = list.slice();
   next.splice(idx, 1);
@@ -7507,298 +7552,41 @@ export async function deleteRelationship(
   return { status: 'ok', id: targetId };
 }
 
-// ===========================================================================
-// Auto-generated dependency relationships (cat 2026-07-10 §3)
-// ===========================================================================
-//
-// For each entry E, walk E.content.snl, collect every macro identifier
-// used, and — for each macro whose `source.entries[]` names an existing
-// entry — emit a relationship  `E → src`  with:
-//
-//   label:    "depends"
-//   metadata: {
-//     isAtomic: bool,                 // filled in by computeAtomicity
-//     generator: "macro-source-scan",
-//     macros: string[],                // deduped macro names that induced
-//                                        this edge (many-to-one collapse)
-//   }
-//
-// Atomicity per cat's spec: "若一个 dependency 可以表示为其他几个 dependency
-// 的复合，则它不是 Atomic." Implemented as transitive-reducibility over the
-// current depends-graph — a A→B edge is NOT atomic iff there is an
-// alternative path A→x1→…→xk→B of length ≥ 2 using only depends edges.
-//
-// SNL macro-name extraction: the parser lives in @sjtu-ai4math/snl-basics
-// (browser bundle, React-linked). Host code can't load it, so we run a
-// lightweight tokenizer that mirrors the parser's macro-identifier
-// recognition:
-//   - skip `%…%`, `$…$`, `$$…$$` delimited spans (opaque leaves);
-//   - skip `@` bare-binder introductions (bindings, not uses);
-//   - collect the identifier that starts with [A-Za-z_.][A-Za-z0-9_.]*
-//     everywhere else.
-// False positives (over-counted names) are harmless — an unregistered
-// name yields no source.entries and generates no edge.
-
-/** Identity marker written into metadata.generator for auto rows so we
- *  know it's safe to regenerate without stomping user-authored edges. */
-const AUTO_GENERATOR_TAG = 'macro-source-scan';
-const AUTO_LABEL = 'depends';
-/** Labels that {@link regenerateDependencyRelationships} manages. Both
- *  are (label, generator) tuples on the metadata side; treat this list
- *  as the source of truth for "is this row auto-managed?". */
-const AUTO_LABELS: readonly string[] = ['depends', 'uses_context'];
-const AUTO_LABEL_USES_CONTEXT = 'uses_context';
-
+// Auto dependencies are generated globally into .cache, never Authoring.
 export { extractSnlReferences } from './snlReferences';
+export { reconcileDependencyRelationships, computeAtomicityInPlace, isAutomaticDependency } from './dependencyCache';
+export type { DependencyGenReport, DependencyScope } from './dependencyCache';
 
-/** Report from {@link regenerateDependencyRelationships}. */
-export interface DependencyGenReport {
-  added: number;
-  removed: number;
-  updated: number;
-  preservedUser: number;
-  totalDepends: number;
-  totalUsesContext: number;
-  atomicCount: number;
-}
-
-export interface DependencyScope {
-  /** Restrict scan to a subset of entry ids. `null` = every entry. */
-  entryIds: Set<string> | null;
-}
-
-/** Pure snapshot reconciliation used by the writer and focused tests. */
-export function reconcileDependencyRelationships(
-  entries: readonly EntryData[],
-  macros: Readonly<Record<string, MacroPackageEntry>>,
-  existing: readonly RelationshipData[],
-  scope: DependencyScope
-): { relationships: RelationshipData[]; report: DependencyGenReport } {
-  const poolIds = new Set(entries.map((entry) => entry.id));
-  const isSystemAutoRow = (relationship: RelationshipData): boolean =>
-    AUTO_LABELS.includes(relationship.label) &&
-    relationship.metadata !== null &&
-    typeof relationship.metadata === 'object' &&
-    (relationship.metadata as { generator?: unknown }).generator === AUTO_GENERATOR_TAG;
-  const isManagedDependencyRow = (relationship: RelationshipData): boolean =>
-    relationship.label === AUTO_LABEL && isSystemAutoRow(relationship);
-
-  const preservedRows: RelationshipData[] = [];
-  const inScopeAuto = new Map<string, RelationshipData>();
-  for (const relationship of existing) {
-    const inScope = scope.entryIds === null || scope.entryIds.has(relationship.from);
-    if (isManagedDependencyRow(relationship) && inScope) {
-      inScopeAuto.set(`${relationship.label}|${relationship.from}|${relationship.to}`, relationship);
-    } else {
-      preservedRows.push(relationship);
-    }
-  }
-  const preservedUser = preservedRows.filter((relationship) =>
-    !isSystemAutoRow(relationship)
-  ).length;
-
-  const generated = new Map<string, { rel: RelationshipData; witnesses: Set<string> }>();
-  const idPrefix: Record<string, string> = {
-    [AUTO_LABEL]: 'dep',
-    [AUTO_LABEL_USES_CONTEXT]: 'ctx'
-  };
-  const witnessField: Record<string, string> = {
-    [AUTO_LABEL]: 'macros',
-    [AUTO_LABEL_USES_CONTEXT]: 'postfixes'
-  };
-  const allocatedIds = new Set(preservedRows.map(({ id }) => id));
-  const allocateGeneratedId = (
-    label: string,
-    from: string,
-    to: string,
-    previous: RelationshipData | undefined
-  ): string => {
-    if (previous && !allocatedIds.has(previous.id)) {
-      allocatedIds.add(previous.id);
-      return previous.id;
-    }
-    const base = `${idPrefix[label]}.${from}.${to}`;
-    let candidate = base;
-    let suffix = 1;
-    while (allocatedIds.has(candidate)) candidate = `${base}.${suffix++}`;
-    allocatedIds.add(candidate);
-    return candidate;
-  };
-  const upsert = (label: string, from: string, to: string, witness: string): void => {
-    if (!to || from === to || !poolIds.has(to)) return;
-    const key = `${label}|${from}|${to}`;
-    let bucket = generated.get(key);
-    if (!bucket) {
-      const previous = inScopeAuto.get(key);
-      bucket = {
-        rel: {
-          id: allocateGeneratedId(label, from, to, previous),
-          from,
-          to,
-          label,
-          metadata: {
-            generator: AUTO_GENERATOR_TAG,
-            [witnessField[label]]: [] as string[],
-            isAtomic: true
-          }
-        },
-        witnesses: new Set<string>()
-      };
-      generated.set(key, bucket);
-    }
-    bucket.witnesses.add(witness);
-  };
-
-  for (const entry of entries) {
-    if (scope.entryIds !== null && !scope.entryIds.has(entry.id)) continue;
-    const snl = entry.content?.snl ?? '';
-    if (!snl.trim()) continue;
-    const references = extractSnlReferences(snl);
-    for (const name of references.macros) {
-      const macro = Object.hasOwn(macros, name) ? macros[name] : undefined;
-      if (!macro || !Array.isArray(macro.source?.entries)) continue;
-      for (const source of macro.source.entries) upsert(AUTO_LABEL, entry.id, source, name);
-    }
-  }
-
-  for (const bucket of generated.values()) {
-    const metadata = bucket.rel.metadata as Record<string, unknown>;
-    metadata[witnessField[bucket.rel.label]] = Array.from(bucket.witnesses).sort();
-  }
-
-  const relationships = [...preservedRows, ...Array.from(generated.values(), ({ rel }) => rel)];
-  const generatedRows = new Set(Array.from(generated.values(), ({ rel }) => rel));
-  computeAtomicityInPlace(relationships, (relationship) => generatedRows.has(relationship));
-  relationships.sort((left, right) =>
-    left.id < right.id ? -1 : left.id > right.id ? 1 : 0
-  );
-
-  let added = 0;
-  let updated = 0;
-  for (const key of generated.keys()) {
-    if (inScopeAuto.has(key)) updated += 1;
-    else added += 1;
-  }
-  let removed = 0;
-  for (const key of inScopeAuto.keys()) {
-    if (!generated.has(key)) removed += 1;
-  }
-  return {
-    relationships,
-    report: {
-      added,
-      removed,
-      updated,
-      preservedUser,
-      totalDepends: relationships.filter(({ label }) => label === AUTO_LABEL).length,
-      totalUsesContext: relationships.filter(({ label }) => label === AUTO_LABEL_USES_CONTEXT).length,
-      atomicCount: relationships.filter((relationship) =>
-        AUTO_LABELS.includes(relationship.label) &&
-        relationship.metadata !== null &&
-        typeof relationship.metadata === 'object' &&
-        (relationship.metadata as { isAtomic?: unknown }).isAtomic === true
-      ).length
-    }
-  };
-}
-
-/**
- * Regenerate the auto-managed subset of `relationships.json` for a scope.
- * Managed rows are identified by (label === "depends") AND
- * (metadata.generator === "macro-source-scan"). User-authored rows and
- * out-of-scope auto rows are preserved verbatim. `uses_context` and every
- * other relationship label are outside this reconciler and remain unchanged.
- *
- * The managed dependency source is `macros[name].source.entries` for each
- * macro name used in the Entry's SNL.
- *
- * Atomicity (metadata.isAtomic) is recomputed PER LABEL over the merged
- * graph: A→B in label L is atomic iff no alternative path A→…→B exists
- * using only label-L edges.
- */
+/** Scope is retained for source compatibility; invalidation is always global. */
 export async function regenerateDependencyRelationships(
   workspaceRoot: vscode.Uri,
-  scope: DependencyScope
+  _scope: DependencyScope
 ): Promise<
   | { status: 'ok'; report: DependencyGenReport }
   | { status: 'noSnlDoc' }
   | { status: 'error'; message: string }
 > {
-  if (!(await exists(snlRootUri(workspaceRoot)))) {
-    return { status: 'noSnlDoc' };
-  }
+  if (!(await exists(snlRootUri(workspaceRoot)))) return { status: 'noSnlDoc' };
   try {
-    const entries = await readEntries(workspaceRoot);
-    const macros = await readAllMacros(workspaceRoot);
-    const existing = await readRelationships(workspaceRoot);
-    const { relationships: merged, report } = reconcileDependencyRelationships(
-      entries,
-      macros,
-      existing,
-      scope
-    );
-
-    const relationshipsFile = relationshipsUri(workspaceRoot);
-    const expectedRelationships: RelationshipsFile | null =
-      (await exists(relationshipsFile)) || existing.length > 0
-        ? { version: RELATIONSHIPS_FILE_VERSION, relationships: existing }
-        : null;
-    await writeWorkspaceFile(workspaceRoot,
-      relationshipsFile,
-      jsonBytes({ version: 1, relationships: merged }),
-      expectedRelationships
-    );
-
-    return { status: 'ok', report };
+    const [entries, macros, existing] = await Promise.all([
+      readEntries(workspaceRoot), readAllMacros(workspaceRoot), readAuthoredRelationships(workspaceRoot)
+    ]);
+    await clearCache(workspaceRoot.fsPath, 'dependencies');
+    const generated = await readDependencyCache(workspaceRoot.fsPath, { entries, macros, relationships: existing });
+    const merged = mergeDependencyRelationships(existing, generated);
+    const previous = existing.filter(isAutomaticDependency);
+    const key = (r: RelationshipData) => JSON.stringify([r.from, r.to]);
+    const oldPairs = new Set(previous.map(key)); const newPairs = new Set(generated.map(key));
+    return { status: 'ok', report: {
+      added: generated.filter(r => !oldPairs.has(key(r))).length,
+      removed: previous.filter(r => !newPairs.has(key(r))).length,
+      updated: generated.filter(r => oldPairs.has(key(r))).length,
+      preservedUser: existing.filter(r => !isAutomaticDependency(r)).length,
+      totalDepends: merged.filter(r => r.label === 'depends').length,
+      totalUsesContext: merged.filter(r => r.label === 'uses_context').length,
+      atomicCount: generated.filter(r => (r.metadata as { isAtomic: boolean }).isAtomic).length
+    } };
   } catch (err) {
-    return {
-      status: 'error',
-      message: err instanceof Error ? err.message : String(err)
-    };
-  }
-}
-
-/**
- * Mark each auto-managed edge (label ∈ AUTO_LABELS) with
- * `metadata.isAtomic = true|false`. Atomicity is computed PER LABEL:
- * an A→B edge with label L is atomic iff no alternative path A→…→B of
- * length ≥ 2 exists using only label-L edges.
- *
- * Algorithm: bucket by label, for each edge BFS from source over
- * same-label edges excluding that one direct edge; if target reachable,
- * not atomic. O(V × (V+E)) per label.
- */
-export function computeAtomicityInPlace(
-  rels: RelationshipData[],
-  shouldUpdate: (relationship: RelationshipData) => boolean = () => true
-): void {
-  for (const label of AUTO_LABELS) {
-    const bucket: { rel: RelationshipData; idx: number }[] = [];
-    rels.forEach((r) => {
-      if (r.label === label) bucket.push({ rel: r, idx: bucket.length });
-    });
-    const adj = new Map<string, { to: string; edgeIdx: number }[]>();
-    bucket.forEach(({ rel, idx }) => {
-      if (!adj.has(rel.from)) adj.set(rel.from, []);
-      adj.get(rel.from)!.push({ to: rel.to, edgeIdx: idx });
-    });
-    bucket.forEach(({ rel, idx: thisIdx }) => {
-      if (!shouldUpdate(rel)) return;
-      const seen = new Set<string>([rel.from]);
-      const queue: string[] = [rel.from];
-      let hit = false;
-      while (queue.length > 0 && !hit) {
-        const cur = queue.shift()!;
-        const outs = adj.get(cur) ?? [];
-        for (const e of outs) {
-          if (cur === rel.from && e.edgeIdx === thisIdx) continue;
-          if (e.to === rel.to) { hit = true; break; }
-          if (!seen.has(e.to)) { seen.add(e.to); queue.push(e.to); }
-        }
-      }
-      const md = (rel.metadata ?? {}) as { isAtomic?: boolean } & Record<string, unknown>;
-      md.isAtomic = !hit;
-      rel.metadata = md;
-    });
+    return { status: 'error', message: err instanceof Error ? err.message : String(err) };
   }
 }

@@ -27,12 +27,14 @@ import { resolveMarkdownAssetUrl } from './render/markdownAssets';
 import { use_content_language } from './runtime/preferencesRuntime';
 import { useVsCodeApiRef } from './vscodeApi';
 
+import { isCachedEntryMetrics, type CachedEntryMetrics } from '../../src/cachedEntryMetrics';
 import { EntryReader } from './reader/EntryReader';
 
 /** One row in the Context / Dependencies collapsible lists (cat 2026-07-10 §2). */
 type Incoming =
   | {
       type: 'entryDetails';
+      cachedEntryMetrics?: CachedEntryMetrics;
       entry: EntryData | null;
       kind: EntryKind | null;
       entries: EntryOption[];
@@ -114,6 +116,7 @@ export function EntryInfoviewApp(): React.ReactElement {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [state, setState] = useState<{
+    cachedEntryMetrics?: CachedEntryMetrics;
     entry: EntryData;
     kind: EntryKind | null;
     entries: EntryOption[];
@@ -155,6 +158,7 @@ export function EntryInfoviewApp(): React.ReactElement {
           return;
         }
         setState({
+          cachedEntryMetrics: isCachedEntryMetrics(msg.cachedEntryMetrics) ? msg.cachedEntryMetrics : undefined,
           entry: msg.entry,
           kind: msg.kind,
           entries: Array.isArray(msg.entries) ? msg.entries : [],

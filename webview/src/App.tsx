@@ -34,6 +34,7 @@ use_content_language
 } from './runtime/preferencesRuntime';
 import { PANEL_STYLE,useVsCodeApiRef } from './vscodeApi';
 
+import { isCachedEntryMetrics, type CachedEntryMetrics } from '../../src/cachedEntryMetrics';
 import { renderCurrentView,type OutlineNode,type View } from './reader/LibraryReader';
 import { ReaderCapabilitiesContext } from './reader/ReaderCapabilities';
 export { LibraryOutline,type OutlineNode } from './reader/LibraryReader';
@@ -44,6 +45,7 @@ type Incoming =
   | {
       type: 'libraryEntries';
       renderSnapshotId?: string;
+      cachedEntryMetrics?: CachedEntryMetrics;
       slug: string;
       title: string;
       description?: string;
@@ -62,6 +64,7 @@ type Incoming =
 
 export function App(): React.ReactElement {
   const contentLanguage = use_content_language();
+  const [cachedEntryMetrics, setCachedEntryMetrics] = useState<CachedEntryMetrics | undefined>();
   const [view, setView] = useState<View>({ kind: 'loading' });
   const [wireUserMacros, setWireUserMacros] = useState<Record<string, WireMacro> | undefined>(undefined);
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
@@ -99,6 +102,7 @@ export function App(): React.ReactElement {
           }));
           break;
         case 'libraryEntries':
+          setCachedEntryMetrics(isCachedEntryMetrics(msg.cachedEntryMetrics) ? msg.cachedEntryMetrics : undefined);
           renderSnapshotRef.current = msg.renderSnapshotId;
           cancelExport();
           if (msg.macros && typeof msg.macros === 'object') {
@@ -225,6 +229,7 @@ export function App(): React.ReactElement {
       <main style={PANEL_STYLE}>
         {renderCurrentView(view, {
           postMessage,
+          cachedEntryMetrics,
           goBack,
           entryPool,
           entryPackages,

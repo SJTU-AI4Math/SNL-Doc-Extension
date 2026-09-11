@@ -1,3 +1,5 @@
+import type { CachedEntryMetrics } from '../../../src/cachedEntryMetrics';
+import { CachedEntryMetricValue } from '../components/EntryMetrics';
 import type { KindPalette } from '@sjtu-ai4math/snl-basics';
 import React,{ useMemo,useState } from 'react';
 import type {
@@ -50,6 +52,7 @@ const MESSAGES = defineUiMessages('entryInfoview', {
 });
 
 export type EntryReaderState = {
+    cachedEntryMetrics?: CachedEntryMetrics;
     entry: EntryData;
     kind: EntryKind | null;
     entries: EntryOption[];
@@ -113,6 +116,7 @@ export function EntryReader({state, loaded, loadError, wireUserMacros, userMacro
         ) : (
           <>
 
+            <div data-snl-entry-metric-region={state.entry.id}><CachedEntryMetricValue entryId={state.entry.id} cachedEntryMetrics={state.cachedEntryMetrics} /></div>
             <EntrySurface
               entry={state.entry}
               kind={state.kind}

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { readCachedEntryMetrics } from './ssiCache';
 import { bind_preferences_panel_title } from './preferencesHost';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
@@ -843,6 +844,7 @@ export class InfoviewPanel {
       const [macros, macroKinds, languages] = await Promise.all([
         this.readMacroDb(), readMacroKinds(root), readWorkspaceSupportedLanguages(root)
       ]);
+      const cachedEntryMetrics = await readCachedEntryMetrics(root.fsPath, entryPool, macros, libraryEntryIds);
       if (generation !== this.viewGeneration) return;
       const closure = readerDependencyClosure(outline, entryPool, macros, relationshipRead.relationships);
       const dependencies = { libraries, entries: entryPool, kinds, counters, graphResult, relationshipRead, macros, macroKinds, languages };
@@ -874,6 +876,7 @@ export class InfoviewPanel {
       void this.panel.webview.postMessage({
         renderSnapshotId,
         type: 'libraryEntries',
+        cachedEntryMetrics,
         slug,
         title: displayTitle,
         description,
@@ -1003,9 +1006,11 @@ export class InfoviewPanel {
         this.readMacroDb(),
         readMacroKinds(root)
       ]);
+      const cachedEntryMetrics = await readCachedEntryMetrics(root.fsPath, entries, macros, [id]);
       if (generation !== this.viewGeneration) return;
       void this.panel.webview.postMessage({
         type: 'entryDetails',
+        cachedEntryMetrics,
         entry,
         kind,
         entries: options,
@@ -1145,9 +1150,11 @@ export class InfoviewPanel {
         );
       }
       const returnRoute = this.entryHistory.at(-1) ?? this.fallbackReturnRoute;
+      const cachedEntryMetrics = await readCachedEntryMetrics(root.fsPath, entries, macros, [id]);
       if (generation !== this.viewGeneration) return;
       void this.panel.webview.postMessage({
         type: 'entryDetails',
+        cachedEntryMetrics,
         entry,
         kind,
         entries: options,

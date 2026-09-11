@@ -181,4 +181,3 @@ it('uses canonical own keys and preserves prototype-like data without input muta
   expect(Object.getPrototypeOf(input)).toBe(Object.prototype);
   expect(() => cacheFingerprint({ value: Infinity })).toThrow();
 });
-

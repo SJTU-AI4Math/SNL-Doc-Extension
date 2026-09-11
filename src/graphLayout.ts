@@ -534,4 +534,3 @@ export function edgePath(
     midY: (y1 + y2) / 2
   };
 }
-

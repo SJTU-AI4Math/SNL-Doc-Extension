@@ -82,6 +82,16 @@ async function guard(root: string, id: string, scope: CacheScope | undefined, cr
     current = path.join(current, scope.library); await checkDirectory(current, false);
   }
   current = path.join(current, '.cache'); await checkDirectory(current, create);
+  if (create) {
+    // This file is itself disposable cache metadata; never edit the user's root gitignore.
+    const ignore = path.join(current, '.gitignore');
+    try { await fs.writeFile(ignore, '*\n', { flag: 'wx', mode: 0o600 }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      const stat = await fs.lstat(ignore);
+      if (stat.isSymbolicLink() || !stat.isFile()) throw new Error('Unsafe cache ignore file');
+    }
+  }
   await checkDirectory(path.join(current, id), create);
   try {
     const stat = await fs.lstat(file);

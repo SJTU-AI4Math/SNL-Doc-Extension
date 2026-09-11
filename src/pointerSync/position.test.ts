@@ -8,6 +8,7 @@ const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(r => fs.rm(r, { recursive: true, force: true }))); });
 it('uses the exact UTF16 cursor and lets priority in a containing scope beat a smaller hit', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pointer-position-')); roots.push(root);
+  await fs.mkdir(path.join(root, '.SNL_Doc'));
   await fs.writeFile(path.join(root, 'x'), 'alpha beta\nother');
   const index = await buildPointerIndex(root, [
     { id: 'alpha', pointer: { file: 'x', mode: 'regex', pattern: 'alpha', beforeLines: 0, afterLines: 0 } },

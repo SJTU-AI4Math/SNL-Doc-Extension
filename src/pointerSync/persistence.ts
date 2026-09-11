@@ -1,6 +1,4 @@
-import { constants, promises as fs } from 'node:fs';
-import * as path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { readCacheArtifact, writeCache } from '../derivedCache';
 import { PointerIndex, stableStringify } from './index';
 import { isStructuralPointer, normalizePointerFile } from './schema';
 import { isCompiledPointerScope } from './scope';
@@ -61,56 +59,30 @@ export function isPointerIndex(value: unknown): value is PointerIndex {
   return value.unfiled.every(entry => validEntry(entry));
 }
 
-function indexPath(rootPath: string): string { return path.join(rootPath, '.SNL_Doc', 'syncSNL.json'); }
-
-async function rejectSymlink(target: string, directory = false): Promise<void> {
-  try {
-    const stat = await fs.lstat(target);
-    if (stat.isSymbolicLink()) throw new Error(`Refusing symlink index path: ${target}`);
-    if (directory ? !stat.isDirectory() : !stat.isFile()) throw new Error(`Invalid index path: ${target}`);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-  }
+/** Canonical build inputs, never dirty overlays. Content v3 is independent of envelope v1. */
+export function pointerIndexInputs(index: PointerIndex): unknown {
+  const entry = ({ resolution: _resolution, ...metadata }: PointerIndex['unfiled'][number]) => metadata;
+  return {
+    files: Object.fromEntries(Object.entries(index.files).map(([file, bucket]) => [file, {
+      fingerprint: bucket.fingerprint, entries: bucket.entries.map(entry)
+    }])),
+    unfiled: index.unfiled.map(entry)
+  };
 }
 
+/** Structural inspection only, NOT a freshness certificate for navigation.
+ * The driver rereads canonical Entries and source files on cold start.
+ * Legacy syncSNL.json is deliberately neither read, rewritten nor removed. */
 export async function readPointerIndex(rootPath: string): Promise<PointerIndex | undefined> {
-  const target = indexPath(rootPath);
-  try {
-    await rejectSymlink(path.dirname(target), true);
-    await rejectSymlink(target);
-    const handle = await fs.open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-    try {
-      if (!(await handle.stat()).isFile()) return undefined;
-      const value: unknown = JSON.parse(await handle.readFile('utf8'));
-      return isPointerIndex(value) ? value : undefined;
-    } finally { await handle.close(); }
-  } catch { return undefined; }
+  return (await readCacheArtifact(rootPath, {
+    id: 'pointer-inverse', version: '1', validate: isPointerIndex
+  }))?.value;
 }
 
-/** Atomic last-writer-wins cache replacement. Parent must serialize generation publication.
- * Reject final-path and .SNL_Doc symlinks; a trusted directory tree is still required because
- * Node has no portable openat/renameat API to lock out hostile ancestor-directory replacement.
- */
+/** Publication is serialized by the Pointer host after its generation check. */
 export async function writePointerIndex(rootPath: string, index: PointerIndex): Promise<void> {
   if (!isPointerIndex(index)) throw new Error('Invalid Pointer index');
-  const target = indexPath(rootPath);
-  const directory = path.dirname(target);
-  await fs.mkdir(directory, { recursive: true });
-  await rejectSymlink(directory, true);
-  await rejectSymlink(target);
-  const temporary = path.join(directory, `.syncSNL.${randomUUID()}.tmp`);
-  try {
-    const handle = await fs.open(temporary, 'wx', 0o600);
-    try {
-      await handle.writeFile(stableStringify(index) + '\n', 'utf8');
-      await handle.sync();
-    } finally { await handle.close(); }
-    await rejectSymlink(directory, true);
-    await rejectSymlink(target);
-    await fs.rename(temporary, target);
-  } finally {
-    await fs.unlink(temporary).catch(error => {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    });
-  }
+  await writeCache(rootPath, {
+    id: 'pointer-inverse', version: '1', input: pointerIndexInputs(index), validate: isPointerIndex
+  }, index);
 }

@@ -1,4 +1,4 @@
-/** Node-only public surface for the host's derived .SNL_Doc/syncSNL.json cache. */
+/** Node-only public surface for the host's derived .SNL_Doc/.cache/pointer-inverse/ cache. */
 export * from './index';
 export * from './persistence';
 export * from './schema';

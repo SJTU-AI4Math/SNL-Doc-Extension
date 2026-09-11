@@ -2,17 +2,30 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-const mocks = vi.hoisted(() => ({ entries: [] as Array<Record<string, unknown>>, language: 'en' }));
-vi.mock('./snlDoc', () => ({ readEntries: async () => mocks.entries }));
+const mocks = vi.hoisted(() => ({ entries: [] as Array<Record<string, unknown>>, language: 'en', readEntries: vi.fn() }));
+vi.mock('./snlDoc', () => ({ readEntries: mocks.readEntries }));
 vi.mock('./preferences', () => ({ read_extension_preferences: () => ({ language: mocks.language }) }));
 import { createPointerHostDriver } from './pointerSyncDriver';
 import { readPointerIndex } from './pointerSync/persistence';
 import { cachePath, clearCache, readCacheArtifact } from './derivedCache';
 import { isPointerIndex } from './pointerSync/persistence';
+import { PointerIndexCoordinator } from './pointerSyncHostState';
+import type { PointerIndex } from './pointerSync';
+import * as resolver from './pointerSync/resolve';
+import * as scopes from './pointerSync/scope';
 const roots: string[] = [];
-afterEach(async () => { for (const root of roots.splice(0)) await fs.rm(root, { recursive: true, force: true }); });
+afterEach(async () => { vi.restoreAllMocks(); for (const root of roots.splice(0)) await fs.rm(root, { recursive: true, force: true }); });
+function boot(uri: never) {
+  const driver = createPointerHostDriver();
+  const coordinator = new PointerIndexCoordinator<PointerIndex>({
+    build: previous => driver.build(uri, previous),
+    publish: index => driver.publish(uri, index),
+  });
+  return { driver, coordinator };
+}
 async function fixture() {
   mocks.language = 'en';
+  mocks.readEntries.mockReset().mockImplementation(async () => structuredClone(mocks.entries));
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'snl-pointer-driver-')); roots.push(root);
   await fs.mkdir(path.join(root, '.SNL_Doc'));
   await fs.writeFile(path.join(root, '.SNL_Doc/config.json'), JSON.stringify({ version: '0.1.0' }));
@@ -21,6 +34,167 @@ async function fixture() {
   return { root, uri: { fsPath: root } as never, driver: createPointerHostDriver() };
 }
 describe('Pointer host filesystem adapter', () => {
+  it('cold-boots a new driver/coordinator from real persisted candidates without resolving or compiling unchanged input', async () => {
+    const f = await fixture();
+    const resolve = vi.spyOn(resolver, 'resolvePointerTextAsync');
+    const compile = vi.spyOn(scopes, 'compilePointerScope');
+    const first = boot(f.uri);
+    const saved = await first.coordinator.ensure();
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(compile).toHaveBeenCalledTimes(1);
+    expect(await readPointerIndex(f.root)).toEqual(saved);
+    first.coordinator.dispose();
+    resolve.mockClear(); compile.mockClear();
+    const source = vi.spyOn(resolver, 'readPointerSource');
+    const open = vi.spyOn(fs, 'open');
+    const cold = boot(f.uri);
+    const rebuilt = await cold.coordinator.ensure();
+    expect(open.mock.calls.some(([file]) => file === cachePath(f.root, 'pointer-inverse'))).toBe(true);
+    expect(source).toHaveBeenCalledWith(f.root, 'Example.lean');
+    expect(mocks.readEntries).toHaveBeenCalledTimes(2);
+    expect(mocks.readEntries).toHaveBeenLastCalledWith(f.uri, true);
+    expect(rebuilt).toEqual(saved);
+    expect(resolve).not.toHaveBeenCalled();
+    expect(compile).not.toHaveBeenCalled();
+    expect(await cold.coordinator.ensure()).toBe(rebuilt);
+    expect(await cold.driver.query(f.uri, rebuilt, 'Example.lean', 2, 'prefix\nfoo\n')).toMatchObject({
+      complete: true, candidates: [{ entryId: 'A', startLine: 2 }],
+    });
+    const bytes = await fs.readFile(cachePath(f.root, 'pointer-inverse'), 'utf8');
+    expect(await cold.driver.query(f.uri, rebuilt, 'Example.lean', 3, 'dirty\nprefix\nfoo\n')).toMatchObject({
+      candidates: [{ entryId: 'A', startLine: 3 }],
+    });
+    expect(await fs.readFile(cachePath(f.root, 'pointer-inverse'), 'utf8')).toBe(bytes);
+    cold.coordinator.dispose();
+    resolve.mockClear(); compile.mockClear();
+    const again = boot(f.uri);
+    expect(await again.coordinator.ensure()).toEqual(saved);
+    expect(resolve).not.toHaveBeenCalled();
+    expect(compile).not.toHaveBeenCalled();
+    again.coordinator.dispose();
+  });
+  it.each([
+    { id: 'Renamed' },
+    { package: 'NewPackage' },
+    { title: { type: 'i18n', default_language: 'en', values: { en: 'Updated' } } },
+    { pointer: { file: 'Example.lean', mode: 'regex', pattern: '^prefix$', flags: 'm', priority: .5 } },
+  ])('cold-reconciles complete changed metadata %j while retaining unchanged resolutions', async change => {
+    const f = await fixture();
+    mocks.entries.push({ id: 'B', pointer: { file: 'Example.lean', mode: 'regex', pattern: 'prefix' } });
+    const first = boot(f.uri); await first.coordinator.ensure(); first.coordinator.dispose();
+    Object.assign(mocks.entries[0], change);
+    const resolve = vi.spyOn(resolver, 'resolvePointerTextAsync');
+    const compile = vi.spyOn(scopes, 'compilePointerScope');
+    const cold = boot(f.uri);
+    const index = await cold.coordinator.ensure();
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(compile).toHaveBeenCalledTimes(1);
+    expect(resolve.mock.calls[0][0]).toEqual(mocks.entries[0].pointer);
+    const row = index.files['Example.lean'].entries.find(entry => entry.entryId !== 'B')!;
+    expect(row).toMatchObject({ entryId: mocks.entries[0].id, package: mocks.entries[0].package,
+      title: mocks.entries[0].title, pointer: mocks.entries[0].pointer });
+    expect(await readPointerIndex(f.root)).toEqual(index);
+    cold.coordinator.dispose();
+  });
+  it('cold-reconciles added, removed and moved Entries without reviving stale buckets', async () => {
+    const f = await fixture();
+    await fs.writeFile(path.join(f.root, 'other'), 'other source');
+    mocks.entries.push({ id: 'Deleted', pointer: { file: 'Example.lean', mode: 'regex', pattern: 'prefix' } });
+    const first = boot(f.uri); await first.coordinator.ensure(); first.coordinator.dispose();
+    mocks.entries = [
+      { id: 'A', pointer: { file: 'other', mode: 'regex', pattern: 'other' } },
+      { id: 'Added', pointer: { file: 'other', mode: 'lines', line: 1 } },
+    ];
+    const resolve = vi.spyOn(resolver, 'resolvePointerTextAsync');
+    const cold = boot(f.uri); const index = await cold.coordinator.ensure();
+    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(Object.keys(index.files)).toEqual(['other']);
+    expect(index.files.other.entries.map(entry => entry.entryId)).toEqual(['A', 'Added']);
+    cold.coordinator.dispose();
+  });
+  it.each(['changed', 'missing'] as const)('checks current source bytes on cold boot (%s), reusing only other files', async state => {
+    const f = await fixture();
+    await fs.writeFile(path.join(f.root, 'other'), 'other source');
+    mocks.entries.push({ id: 'B', pointer: { file: 'other', mode: 'regex', pattern: 'other' } });
+    const first = boot(f.uri); await first.coordinator.ensure(); first.coordinator.dispose();
+    const file = path.join(f.root, 'Example.lean');
+    if (state === 'changed') {
+      const stat = await fs.stat(file);
+      // Same length/mtime is not a freshness certificate.
+      await fs.writeFile(file, 'foo\nprefix\n');
+      await fs.utimes(file, stat.atime, stat.mtime);
+    } else await fs.unlink(file);
+    const resolve = vi.spyOn(resolver, 'resolvePointerTextAsync');
+    const compile = vi.spyOn(scopes, 'compilePointerScope');
+    const source = vi.spyOn(resolver, 'readPointerSource');
+    const cold = boot(f.uri); const index = await cold.coordinator.ensure();
+    expect(source).toHaveBeenCalledTimes(2);
+    expect(resolve).toHaveBeenCalledTimes(state === 'changed' ? 1 : 0);
+    expect(compile).toHaveBeenCalledTimes(state === 'changed' ? 1 : 0);
+    expect(index.files['Example.lean'].entries[0].resolution).toMatchObject(state === 'changed'
+      ? { status: 'ok', scope: { startLine: 1 } } : { status: 'file-missing' });
+    expect(index.files.other.entries[0].resolution.status).toBe('ok');
+    cold.coordinator.dispose();
+  });
+  it.each(['missing', 'bad-json', 'bad-hash', 'old-version'] as const)('cold-rebuilds %s cache without any legacy syncSNL I/O', async state => {
+    const f = await fixture();
+    const first = boot(f.uri); const saved = await first.coordinator.ensure(); first.coordinator.dispose();
+    const file = cachePath(f.root, 'pointer-inverse');
+    if (state === 'missing') await fs.unlink(file);
+    else if (state === 'bad-json') await fs.writeFile(file, '{broken');
+    else {
+      const envelope = JSON.parse(await fs.readFile(file, 'utf8'));
+      if (state === 'bad-hash') envelope.value.files['Example.lean'].entries[0].entryId = 'Forged';
+      else envelope.version = 'obsolete';
+      await fs.writeFile(file, JSON.stringify(envelope));
+    }
+    const legacy = path.join(f.root, '.SNL_Doc/syncSNL.json');
+    await fs.writeFile(legacy, 'legacy ignored');
+    const before = await fs.stat(legacy);
+    const read = vi.spyOn(fs, 'readFile'), open = vi.spyOn(fs, 'open');
+    const write = vi.spyOn(fs, 'writeFile'), unlink = vi.spyOn(fs, 'unlink'), rm = vi.spyOn(fs, 'rm');
+    const resolve = vi.spyOn(resolver, 'resolvePointerTextAsync');
+    const cold = boot(f.uri); const index = await cold.coordinator.ensure();
+    expect(index).toEqual(saved);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    for (const spy of [read, open, write, unlink, rm]) {
+      expect(spy.mock.calls.some(([target]) => target === legacy)).toBe(false);
+    }
+    expect(await fs.stat(legacy)).toMatchObject({ ino: before.ino, size: before.size, mtimeMs: before.mtimeMs });
+    expect(await fs.readFile(legacy, 'utf8')).toBe('legacy ignored');
+    expect(await readPointerIndex(f.root)).toEqual(saved);
+    cold.coordinator.dispose();
+  });
+  it.each([
+    { file: '../outside', mode: 'regex', pattern: 'foo' },
+    { file: 'Example.lean', mode: 'regex', pattern: 'foo', occurrence: 0 },
+    { file: 'Example.lean', mode: 'regex', pattern: 'foo', flags: 'gg' },
+    { file: 'Example.lean', mode: 'regex', pattern: '[' },
+    { file: 'Example.lean', mode: 'lines', line: 1, column: 999 },
+  ])('does not let a prior successful resolution bypass current Pointer validation: %j', async pointer => {
+    const f = await fixture();
+    const first = boot(f.uri); await first.coordinator.ensure(); first.coordinator.dispose();
+    mocks.entries[0].pointer = pointer;
+    const compile = vi.spyOn(scopes, 'compilePointerScope');
+    const cold = boot(f.uri); const index = await cold.coordinator.ensure();
+    expect(cold.driver.summary(index)).toMatchObject({ pointers: 1, unresolved: 1 });
+    expect(compile).not.toHaveBeenCalled();
+    expect((await cold.driver.query(f.uri, index, 'Example.lean', 2, 'prefix\nfoo\n')).candidates).toEqual([]);
+    cold.coordinator.dispose();
+  });
+  it('reads canonical Entries before cache admission and refuses to publish after canonical read failure', async () => {
+    const f = await fixture();
+    const first = boot(f.uri); await first.coordinator.ensure(); first.coordinator.dispose();
+    const file = cachePath(f.root, 'pointer-inverse');
+    const bytes = await fs.readFile(file, 'utf8');
+    mocks.readEntries.mockRejectedValueOnce(new Error('canonical metadata invalid'));
+    const open = vi.spyOn(fs, 'open');
+    const cold = boot(f.uri);
+    await expect(cold.coordinator.ensure()).rejects.toThrow('canonical metadata invalid');
+    expect(open).not.toHaveBeenCalled();
+    expect(await fs.readFile(file, 'utf8')).toBe(bytes);
+    cold.coordinator.dispose();
+  });
   it('rebuilds the global v3 cache through the common interface without touching legacy files', async () => {
     const f = await fixture();
     const legacy = path.join(f.root, '.SNL_Doc/syncSNL.json');

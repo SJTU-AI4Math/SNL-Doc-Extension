@@ -1,12 +1,13 @@
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { mkdtemp, mkdir, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { build } from 'esbuild';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import type { CachedEntryMetrics } from './cachedEntryMetrics';
-const state = vi.hoisted(() => ({ root: '', posted: [] as any[], nativeRead: null as any,
+const state = vi.hoisted(() => ({ root: '', scheme: 'file', posted: [] as any[], nativeRead: null as any,
   entries: [
     { id: 'target', package: 'one', title: 'Target', kind: 'definition', content: { snl: 'x@context' }, pointer: null },
     { id: 'context', package: 'two', title: 'Context', kind: 'definition', content: { snl: '@x' }, pointer: null }
@@ -23,7 +24,7 @@ vi.mock('./snlDoc', () => ({
   } } })
 }));
 vi.mock('./panelUtil', () => ({
-  firstWorkspaceFolder: () => ({ fsPath: state.root, path: state.root, toString: () => state.root })
+  firstWorkspaceFolder: () => ({ scheme: state.scheme, fsPath: state.root, path: state.root, toString: () => `${state.scheme}://provider${state.root}` })
 }));
 // Load the real CJS host implementation outside Vitest's ESM VM. Only I/O-bound
 // workspace reads and VS Code transport are faked, not the calculator/cache.
@@ -68,6 +69,19 @@ it('Entry and Library host messages consume one saved global cache while returni
   }
   expect(Object.keys(frozen.cachedEntryMetrics.entries).sort()).toEqual(['context','target']);
   expect(frozen.globalPageRank.scores).toEqual(rank.scores);
+});
+it('provider Entry and Library projections consume ready SSI/PageRank without native cache I/O', async () => {
+  state.scheme = 'memfs'; state.posted.length = 0;
+  const spies = (['lstat', 'mkdir', 'open', 'writeFile', 'readFile', 'rename', 'unlink'] as const).map(m => vi.spyOn(fs, m));
+  try {
+    const panel = await harness(); await panel.pushLibraryEntries('lib'); await panel.pushEntryDetailsForEntry('target');
+    for (const message of state.posted.filter(m => ['libraryEntries', 'entryDetails'].includes(m.type))) {
+      expect(message.cachedEntryMetrics).toMatchObject({ status: 'ready', entries: { target: { kind: 'ok' } } });
+      expect(message.globalPageRank).toMatchObject({ scope: 'workspace', converged: true });
+    }
+    expect(state.posted.filter(m => ['libraryEntries', 'entryDetails'].includes(m.type))).toHaveLength(2);
+    for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+  } finally { vi.restoreAllMocks(); state.scheme = 'file'; }
 });
 it('freezes global values for the closure without exporting an unrelated private Entry', async () => {
   state.posted.length = 0;

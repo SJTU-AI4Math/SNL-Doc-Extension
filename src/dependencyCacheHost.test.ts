@@ -4,19 +4,31 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import * as vscode from 'vscode';
 
+const provider = vi.hoisted(() => ({ files: new Map<string, Buffer | null>(), statError: '' }));
+
 // Only the VS Code transport is substituted: all storage, schema/CAS, reads,
 // dependency generation and cache publication below run against real files.
 vi.mock('vscode', async () => {
   const fs = await import('node:fs/promises');
   const path = await import('node:path');
-  const uri = (p: string): any => ({ scheme: 'file', fsPath: p, path: p, toString: () => `file://${p}` });
+  const uri = (p: string, scheme = 'file', authority = ''): any => ({ scheme, authority, fsPath: p, path: p, toString: () => `${scheme}://${authority}${p}` });
+  const item = (u: any) => {
+    if (u.path.endsWith('/relationships.json') && provider.statError) throw Object.assign(new Error('provider denied'), { code: provider.statError });
+    if (!provider.files.has(u.toString())) throw Object.assign(new Error('missing provider file'), { code: 'FileNotFound' });
+    return provider.files.get(u.toString());
+  };
   return {
     FileType: { File: 1, Directory: 2, SymbolicLink: 64 },
-    Uri: { file: uri, joinPath: (base: any, ...parts: string[]) => uri(path.join(base.fsPath, ...parts)) },
+    Uri: { file: uri, parse: (s: string) => { const u = new URL(s); return uri(u.pathname, u.protocol.slice(0, -1), u.host); }, joinPath: (base: any, ...parts: string[]) => uri(path.join(base.fsPath, ...parts), base.scheme, base.authority) },
     workspace: { fs: {
-      stat: async (u: any) => { const s = await fs.lstat(u.fsPath); return { type: s.isSymbolicLink() ? 64 : s.isDirectory() ? 2 : 1, size: s.size, mtime: s.mtimeMs, ctime: s.ctimeMs }; },
-      readFile: (u: any) => fs.readFile(u.fsPath),
-      readDirectory: async (u: any) => (await fs.readdir(u.fsPath, { withFileTypes: true })).map(d => [d.name, d.isDirectory() ? 2 : d.isSymbolicLink() ? 64 : 1]),
+      stat: async (u: any) => { if (u.scheme !== 'file') return { type: item(u) === null ? 2 : 1, size: 0, mtime: 0, ctime: 0 }; const s = await fs.lstat(u.fsPath); return { type: s.isSymbolicLink() ? 64 : s.isDirectory() ? 2 : 1, size: s.size, mtime: s.mtimeMs, ctime: s.ctimeMs }; },
+      readFile: async (u: any) => u.scheme === 'file' ? fs.readFile(u.fsPath) : item(u),
+      readDirectory: async (u: any) => {
+        if (u.scheme === 'file') return (await fs.readdir(u.fsPath, { withFileTypes: true })).map(d => [d.name, d.isDirectory() ? 2 : d.isSymbolicLink() ? 64 : 1]);
+        item(u);
+        const prefix = u.toString() + '/';
+        return [...provider.files].filter(([key]) => key.startsWith(prefix) && !key.slice(prefix.length).includes('/')).map(([key, value]) => [key.slice(prefix.length), value === null ? 2 : 1]);
+      },
       createDirectory: (u: any) => fs.mkdir(u.fsPath, { recursive: true }),
       writeFile: (u: any, b: Uint8Array) => fs.writeFile(u.fsPath, b),
       rename: (a: any, b: any) => fs.rename(a.fsPath, b.fsPath),
@@ -35,7 +47,7 @@ import { clearCache, cachePath } from './derivedCache';
 import { entryEntityPath } from './entityStorage';
 import { relationshipGraphEdge } from './relationshipGraphWire';
 const roots: string[] = [];
-afterEach(async () => { for (const r of roots.splice(0)) await fs.rm(r, { recursive: true, force: true }); });
+afterEach(async () => { vi.restoreAllMocks(); provider.files.clear(); provider.statError = ''; for (const r of roots.splice(0)) await fs.rm(r, { recursive: true, force: true }); });
 async function fixture() {
   const root = await fs.mkdtemp(join(tmpdir(), 'snl-dependency-host-')); roots.push(root);
   const uri = vscode.Uri.file(root);
@@ -157,5 +169,51 @@ describe('Dependency cache real host storage', () => {
     expect(await authored(f.root)).toEqual(before);
     expect((await readRelationships(f.uri)).map(r => r.id).sort()).toEqual(['context', 'manual']);
     expect(JSON.parse(await fs.readFile(join(f.root, '.SNL_Doc/.cache/dependencies/result.json'), 'utf8')).generator).toBe('dependencies');
+  });
+});
+
+async function virtualFixture(localExists = false) {
+  const f = await withMacro();
+  const local = localExists ? f.root : join(f.root, 'remote-only');
+  const uri = vscode.Uri.parse(`memfs://one${local}`);
+  const bytes = await authored(f.root);
+  for (const authority of ['one', 'two']) {
+    const root = `memfs://${authority}${local}`;
+    for (const [relative, value] of Object.entries(bytes)) {
+      const parts = relative.split('/');
+      for (let i = 1; i < parts.length; ++i) provider.files.set(root + '/' + parts.slice(0, i).join('/'), null);
+      provider.files.set(root + '/' + relative, Buffer.from(value, 'base64'));
+    }
+  }
+  return { ...f, uri, other: vscode.Uri.parse(`memfs://two${local}`) };
+}
+
+describe('provider-backed relationship and cache API', () => {
+  it.each([false, true])('routes reads, overview, PageRank and rebuild without native cache I/O (local collision=%s)', async localExists => {
+    const f = await virtualFixture(localExists);
+    const io = ['lstat', 'stat', 'mkdir', 'open', 'writeFile', 'readFile', 'rename', 'unlink', 'readdir'] as const;
+    const spies = io.map(method => vi.spyOn(fs, method));
+    const cold = await readRelationships(f.uri);
+    expect(cold.find(r => r.id === 'dep.A.B')).toBeDefined();
+    expect(await readRelationships(f.uri)).toEqual(cold);
+    expect((await readOverview(f.uri)).relationships).toEqual(cold);
+    expect((await readGlobalPageRank(f.uri)).converged).toBe(true);
+    expect(await regenerateDependencyRelationships(f.uri, { entryIds: null })).toMatchObject({ status: 'ok' });
+    expect(await readRelationships(f.uri)).toEqual(cold);
+    for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+  });
+  it.each(['EACCES', 'EIO', 'Unavailable'])('propagates relationship stat %s instead of publishing incomplete PageRank', async code => {
+    const f = await virtualFixture(true);
+    await readGlobalPageRank(f.uri); // A warm cache must not mask authored failures.
+    provider.statError = code;
+    await expect(readAuthoredRelationships(f.uri)).rejects.toMatchObject({ code });
+    await expect(readRelationships(f.uri)).rejects.toMatchObject({ code });
+    await expect(readOverview(f.uri)).rejects.toMatchObject({ code });
+    await expect(readGlobalPageRank(f.uri)).rejects.toMatchObject({ code });
+    expect(await regenerateDependencyRelationships(f.uri, { entryIds: null })).toMatchObject({ status: 'error' });
+  });
+  it.each(['ENOENT', 'FileNotFound'])('treats only explicit %s as an optional empty relationship pool', async code => {
+    const f = await virtualFixture(); provider.statError = code;
+    expect(await readAuthoredRelationships(f.uri)).toEqual([]);
   });
 });

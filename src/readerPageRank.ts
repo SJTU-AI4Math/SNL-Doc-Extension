@@ -1,10 +1,11 @@
 import type { EntryData, RelationshipData } from './snlDoc';
 import { readPageRankCache } from './pageRankCache';
+import type { CacheRoot } from './derivedCache';
 import { projectPageRank, type GlobalPageRankView } from './entryPageRankView';
 
 /** Full saved workspace inputs in; a display/export projection out. Cache/graph
  * failure stays local to the metric, and never becomes a synthetic zero score. */
-export async function readReaderPageRank(root: string, entries: readonly EntryData[],
+export async function readReaderPageRank(root: CacheRoot, entries: readonly EntryData[],
   relationshipRead: { relationships: readonly RelationshipData[]; error: string | null },
   ids: Iterable<string>): Promise<GlobalPageRankView | null> {
   if (relationshipRead.error !== null) return null;

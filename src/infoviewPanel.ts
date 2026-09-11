@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { readCachedEntryMetrics } from './ssiCache';
+import { cacheRootForWorkspace } from './cacheRoot';
 import { readReaderPageRank } from './readerPageRank';
 import { projectPageRank } from './entryPageRankView';
 import { projectCachedEntryMetrics } from './cachedEntryMetrics';
@@ -844,8 +845,8 @@ export class InfoviewPanel {
       const closure = readerDependencyClosure(outline, entryPool, macros, relationshipRead.relationships);
       const closureIds = closure.entries.map(entry => entry.id);
       const [cachedEntryMetrics, globalPageRank] = await Promise.all([
-        readCachedEntryMetrics(root.fsPath, entryPool, macros, closureIds),
-        readReaderPageRank(root.fsPath, entryPool, relationshipRead, closureIds)
+        readCachedEntryMetrics(cacheRootForWorkspace(root), entryPool, macros, closureIds),
+        readReaderPageRank(cacheRootForWorkspace(root), entryPool, relationshipRead, closureIds)
       ]);
       if (generation !== this.viewGeneration) return;
       const dependencies = { libraries, entries: entryPool, kinds, counters, graphResult, relationshipRead, macros, macroKinds, languages };
@@ -1015,8 +1016,8 @@ export class InfoviewPanel {
         .then(relationships => ({ relationships, error: null }))
         .catch(error => ({ relationships: [], error: String(error) }));
       const [cachedEntryMetrics, globalPageRank] = await Promise.all([
-        readCachedEntryMetrics(root.fsPath, entries, macros, [id]),
-        readReaderPageRank(root.fsPath, entries, relationshipRead, [id])
+        readCachedEntryMetrics(cacheRootForWorkspace(root), entries, macros, [id]),
+        readReaderPageRank(cacheRootForWorkspace(root), entries, relationshipRead, [id])
       ]);
       if (generation !== this.viewGeneration) return;
       void this.panel.webview.postMessage({
@@ -1165,8 +1166,8 @@ export class InfoviewPanel {
       const returnRoute = this.entryHistory.at(-1) ?? this.fallbackReturnRoute;
       const relationshipRead = { relationships, error: relationshipsError ?? null };
       const [cachedEntryMetrics, globalPageRank] = await Promise.all([
-        readCachedEntryMetrics(root.fsPath, entries, macros, [id]),
-        readReaderPageRank(root.fsPath, entries, relationshipRead, [id])
+        readCachedEntryMetrics(cacheRootForWorkspace(root), entries, macros, [id]),
+        readReaderPageRank(cacheRootForWorkspace(root), entries, relationshipRead, [id])
       ]);
       if (generation !== this.viewGeneration) return;
       void this.panel.webview.postMessage({

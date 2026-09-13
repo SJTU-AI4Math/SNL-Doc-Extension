@@ -7,7 +7,7 @@ const sha = (s: string | Buffer) => createHash('sha256').update(s).digest('hex')
 function preview(): SourcePreview {
   const bytes = Buffer.from('</script><!--<script>globalThis.pwned=true</script>\u2028\u2029');
   const fileId = sha('__proto__'), digest = sha(bytes);
-  return { manifest: { schemaVersion: 'snl.export.sources/v2', exportId: 'export', renderSnapshotId: 'render', workspaceName: '</script>',
+  return { manifest: { schemaVersion: 'snl.export.sources/v3', exportId: 'export', renderSnapshotId: 'render', workspaceName: '</script>',
     snapshot: { mode: 'disk' }, options: { scope: 'project', keep: [], exclude: [], companionFiles: [] }, directories: [],
     files: [{ fileId, displayPath: '__proto__', kind: 'text', language: 'javascript', byteLength: bytes.length, sha256: digest, bom: false, eol: 'none', chunkId: `source-${fileId}.js` }],
     pointers: [], entryRoutes: [] }, chunks: [{ fileId, sha256: digest, base64: bytes.toString('base64') }], totalBytes: bytes.length, estimatedBytes: 1000,
@@ -37,6 +37,7 @@ describe('source artifact scripts', () => {
   });
   it('rejects malformed ids, missing/extra chunks, corrupt hashes and mismatched mapping before generating', () => {
     for (const mutate of [
+      (p: SourcePreview) => { (p.manifest as { schemaVersion: string }).schemaVersion = 'snl.export.sources/v2'; },
       (p: SourcePreview) => { p.manifest.files[0].fileId = '../index'; },
       (p: SourcePreview) => { p.chunks = []; },
       (p: SourcePreview) => { p.chunks.push(p.chunks[0]); },

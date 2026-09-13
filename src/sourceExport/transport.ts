@@ -22,7 +22,7 @@ function data(value: unknown): string {
 export function buildSourceAssets(preview: SourcePreview, inline: boolean): { texts: TextAsset[] } {
   const { manifest, chunks } = preview;
   const fail = (): never => { throw new Error('Invalid source manifest/chunk closure'); };
-  if (manifest.schemaVersion !== 'snl.export.sources/v2' || !manifest.renderSnapshotId) fail();
+  if (manifest.schemaVersion !== 'snl.export.sources/v3' || !manifest.renderSnapshotId) fail();
   const files = new Map(manifest.files.map(f => [f.fileId, f]));
   if (files.size !== manifest.files.length || chunks.length !== files.size) fail();
   const paths = new Set<string>();

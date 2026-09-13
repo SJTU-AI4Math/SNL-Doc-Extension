@@ -6,7 +6,7 @@ describe('browser reader platform', () => {
     const route = { kind: 'entry' as const, entryId: 'A/字', returnHash: '#/node/Entry.Child.second' };
     expect(decodeReaderRoute(encodeReaderRoute(route))).toEqual(route);
     expect(decodeReaderRoute('#/node/Entry.Child.second')).toEqual({ kind: 'node', nodeId: 'Entry.Child.second' });
-    expect(decodeReaderRoute('#/entry/%')).toEqual({ kind: 'library' });
+    expect(decodeReaderRoute('#/entry/%')).toEqual({ kind: 'unavailable' });
   });
   it('answers all three resource channels with exact correlated identities and fails closed on revision mismatch', () => {
     const resources = { 'slot.svg': { url: 'data:image/svg+xml;base64,PHN2Zy8+', text: '<svg/>', revision: 'sha256:abc' } };

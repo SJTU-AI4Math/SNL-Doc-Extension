@@ -160,11 +160,11 @@ describe('public source reveal → active caret → inverse lookup', () => {
   });
   afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
 
-  it('round-trips a zero-buffer multiline half-open source range', async () => {
+  it('round-trips an exact multiline half-open source range', async () => {
     state.sourceText = 'prefix\n  def image :=\n    target suffix\nnext';
     await fs.writeFile(path.join(root, 'source.lean'), state.sourceText);
     const pointer = { file: 'source.lean', mode: 'lines' as const,
-      line: 2, column: 3, endLine: 3, endColumn: 11, beforeLines: 0, afterLines: 0 };
+      line: 2, column: 3, endLine: 3, endColumn: 11 };
     const index = await buildPointerIndex(root, [{ id: 'Set.image', pointer }]);
     const forward = await resolveEntryPointer(vscode.Uri.file(root), pointer);
     expect(forward.status).toBe('ok');
@@ -217,7 +217,7 @@ describe('public source reveal → active caret → inverse lookup', () => {
     it.each(fixtures)('$name retains the full source range and queries its active caret', async fixture => {
       state.sourceText = fixture.text;
       await fs.writeFile(path.join(root, 'source.lean'), fixture.text);
-      const pointer = { ...fixture.pointer, beforeLines: 0, afterLines: 0 };
+      const pointer = { ...fixture.pointer };
       const index = await buildPointerIndex(root, [{ id: 'target', pointer }]);
       const forward = await resolveEntryPointer(vscode.Uri.file(root), pointer);
       expect(forward.status).toBe('ok');

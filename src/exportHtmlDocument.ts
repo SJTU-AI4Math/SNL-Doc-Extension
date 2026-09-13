@@ -105,6 +105,10 @@ export const EXPORT_BASE_CSS = `
   --snl-export-foreground: #111111;
   --vscode-editor-background: #ffffff;
   --vscode-editor-foreground: #111111;
+  --vscode-foreground: var(--vscode-editor-foreground);
+  --vscode-editorWidget-background: var(--vscode-menu-background);
+  --vscode-sideBar-background: var(--vscode-menu-background);
+  --vscode-panel-border: var(--vscode-widget-border);
   --vscode-widget-border: rgba(31, 41, 55, 0.24);
   --vscode-focusBorder: #0969da;
   --vscode-toolbar-hoverBackground: rgba(127, 127, 127, 0.15);

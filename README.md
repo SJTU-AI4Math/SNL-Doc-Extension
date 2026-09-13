@@ -36,9 +36,12 @@ Then launch the extension from VS Code (F5 / Run Extension). See
 
 ## Source navigation and parallel reading (0.1.2 candidate)
 
-- Each Entry Pointer has independent `beforeLines` / `afterLines` context.
-  `Ctrl+Alt+J` finds the nearest Entry from source; ambiguous matches remain a
-  choice. Dashboard exposes Pointer index maintenance. `.SNL_Doc/syncSNL.json`
+- Pointer sync uses only the exact regex match or explicit line/column range;
+  there is no before/after-line expansion. `Ctrl+Alt+J` chooses directly by
+  Priority, smaller actual range, then stable identity, without a picker.
+  Regex editing uses joined `/ pattern / flags` fields (not JS literal parsing).
+  Retired context fields are ignored and removed on Entry save; old derived
+  indexes are rebuilt. Dashboard exposes Pointer index maintenance. `.SNL_Doc/syncSNL.json`
   is a rebuildable reverse index, not canonical Entry storage.
 - **Export HTML → Include source code** adds an offline read-only Monaco pane
   beside the document, with Lean highlighting, search, copying, folding,

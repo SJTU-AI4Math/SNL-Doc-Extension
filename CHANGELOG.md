@@ -3,8 +3,8 @@
 ## 0.1.2 — release candidate (not published)
 
 ### Added
-- Bidirectional Entry/source navigation with per-Pointer asymmetric context,
-  explicit ambiguity handling, dirty-buffer-aware lookup and rebuildable reverse
+- Bidirectional Entry/source navigation with exact Pointer ranges,
+  deterministic tie handling, dirty-buffer-aware lookup and rebuildable reverse
   index maintenance in Dashboard.
 - Optional source snapshots in HTML exports: exact-file preflight, keep/exclude
   rules, whole-file or project scope, dependency-root authorization, immutable
@@ -15,10 +15,15 @@
   Single-file and directory exports require no external Monaco service.
 
 ### Fixed
+- Remove before/after-line expansion from Pointer sync and authoring. Legacy
+  values cannot expand ranges; managed Entry saves remove the retired fields.
+  Derived index v3 and source manifest v3 prevent reuse of expanded v2 scopes.
+- Join regex pattern and flags inputs into a compact `/ pattern / flags` frame,
+  preserving separate stored fields, escapes, occurrence and opaque metadata.
 - Pin the published `@sjtu-ai4math/snl-basics` dependency to **0.3.5** across
   the host bridge, Webviews and shared React HTML reader.
 - Make Ctrl+Alt+J (Cmd+Alt+J on macOS) navigate directly without a candidate
-  picker: containing scope, highest Priority, smallest expanded UTF-16 span,
+  picker: containing scope, highest Priority, smallest actual UTF-16 span,
   then locale-independent Entry/Package identity and HTML occurrence identity.
 - Preserve the document reading anchor when opening source beside it; finish
   collapsed-target rendering before applying reverse-navigation highlighting.

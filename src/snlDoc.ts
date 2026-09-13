@@ -1,3 +1,4 @@
+import { extractSnlReferences } from './snlReferences';
 import { assertTableRendererTransport } from './blockRendererSpec';
 import { createHash, randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
@@ -4245,16 +4246,18 @@ export interface EntryData {
   pointer: import('./pointer').EntryPointer | null | unknown;
 }
 
-function pointerMatchDistanceError(pointer: unknown): string | undefined {
+// Retired context fields are ignored on read and removed from managed Entry saves.
+// Preserve all other Pointer metadata; this is not a lossy schema normalization.
+function withoutPointerContext(pointer: unknown): unknown {
+  if (!pointer || typeof pointer !== 'object' || Array.isArray(pointer)) return pointer;
+  const { beforeLines: _before, afterLines: _after, ...rest } = pointer as Record<string, unknown>;
+  return rest;
+}
+
+function pointerPositionError(pointer: unknown): string | undefined {
   if (!pointer || typeof pointer !== 'object' || Array.isArray(pointer)) return undefined;
   const record = pointer as Record<string, unknown>;
-  for (const field of ['beforeLines', 'afterLines']) {
-    if (!Object.hasOwn(record, field)) continue;
-    const value = record[field];
-    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-      return `pointer.${field} must be a nonnegative safe integer`;
-    }
-  }
+
   if (Object.hasOwn(record, 'priority') && (typeof record.priority !== 'number' || !Number.isFinite(record.priority))) {
     return 'pointer.priority must be a finite number';
   }
@@ -4294,7 +4297,7 @@ export async function addEntry(
     // Establish writable schema/version mode before business-field validation;
     // future or malformed configs must never masquerade as unknownKind/invalid.
     await assertWorkspaceWritableOnDisk(workspaceRoot);
-    const distanceError = pointerMatchDistanceError(entry?.pointer);
+    const distanceError = pointerPositionError(entry?.pointer);
     if (distanceError) return { status: 'invalid', reason: distanceError } as const;
     const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
   const kind = typeof entry?.kind === 'string' ? entry.kind.trim() : '';
@@ -4406,7 +4409,7 @@ export async function addEntry(
     title,
     content: normalizedContent,
     contribution_info: contributor,
-    pointer: entry.pointer ?? null
+    pointer: withoutPointerContext(entry.pointer) ?? null
   };
   // Drop undefined content fields so entries.json stays tidy.
   for (const key of Object.keys(record.content) as Array<
@@ -5156,8 +5159,9 @@ export async function updateEntry(
       message: error instanceof Error ? error.message : String(error)
     };
   }
-  const distanceError = pointerMatchDistanceError(entry.pointer);
-  if (distanceError && !isDeepStrictEqual(entry.pointer, pool[idx].pointer)) {
+  const distanceError = pointerPositionError(entry.pointer);
+  // Removing retired fields is not an authored edit to active Pointer values.
+  if (distanceError && !isDeepStrictEqual(withoutPointerContext(entry.pointer), withoutPointerContext(pool[idx].pointer))) {
     return { status: 'invalid', message: distanceError };
   }
   const currentPackageId = pool[idx].package ?? UNPACKAGED_PACKAGE_ID;
@@ -5207,7 +5211,7 @@ export async function updateEntry(
     title,
     content: mergedContent as EntryData['content'],
     contribution_info: contributor,
-    pointer: entry.pointer ?? null
+    pointer: withoutPointerContext(entry.pointer) ?? null
   };
   for (const key of Object.keys(record.content) as Array<
     keyof EntryData['content']
@@ -7545,78 +7549,7 @@ const AUTO_LABEL = 'depends';
 const AUTO_LABELS: readonly string[] = ['depends', 'uses_context'];
 const AUTO_LABEL_USES_CONTEXT = 'uses_context';
 
-/**
- * Extract macro identifiers AND `x@foo` context-src target entry ids from
- * an SNL string. The scanner is a lightweight tokenizer that mirrors the
- * parser's identifier recognition without pulling the parser itself into
- * the host bundle.
- *
- * `macros`: bare identifiers used as macro references (used to look up
- *   `source.entries[]` for the "depends" auto-edge).
- * `contextSrcs`: the `<name>` in `x@<name>` postfixes — a direct
- *   entry-id reference (Stage 1 §src-postfix), used for the
- *   "uses_context" auto-edge (cat 2026-07-10).
- */
-export function extractSnlReferences(
-  snl: string
-): { macros: string[]; contextSrcs: string[] } {
-  const macros = new Set<string>();
-  const contextSrcs = new Set<string>();
-  if (!snl) return { macros: [], contextSrcs: [] };
-  let i = 0;
-  const n = snl.length;
-  const isIdStart = (c: string): boolean => /[A-Za-z_.]/.test(c);
-  const isIdCont = (c: string): boolean => /[A-Za-z0-9_.]/.test(c);
-  while (i < n) {
-    const c = snl[i];
-    if (/\s|[(),\[\]]/.test(c)) { i += 1; continue; }
-    if (c === '%') {
-      i += 1;
-      while (i < n && snl[i] !== '%') i += 1;
-      i += 1;
-      continue;
-    }
-    if (c === '$') {
-      const isDisplay = snl[i + 1] === '$';
-      const delim = isDisplay ? '$$' : '$';
-      i += delim.length;
-      while (i < n && snl.substr(i, delim.length) !== delim) i += 1;
-      i += delim.length;
-      continue;
-    }
-    if (c === '@') {
-      // Bare `@foo` = binder introduction. Skip the following name — it's
-      // a binding site, not a use.
-      i += 1;
-      if (i < n && (snl[i] === '%' || snl[i] === '$')) continue;
-      while (i < n && isIdCont(snl[i])) i += 1;
-      continue;
-    }
-    if (isIdStart(c)) {
-      let j = i + 1;
-      while (j < n && isIdCont(snl[j])) j += 1;
-      macros.add(snl.slice(i, j));
-      i = j;
-      if (i < n && snl[i] === '[') {
-        while (i < n && snl[i] !== ']') i += 1;
-        if (i < n) i += 1;
-      }
-      // `x@foo` src postfix: `x` was just collected as a macro name (a
-      // false positive we accept — unregistered names produce no edge),
-      // but the `@foo` chunk names a context-entry id and IS the
-      // uses_context source ref.
-      if (i < n && snl[i] === '@') {
-        i += 1;
-        const start = i;
-        while (i < n && isIdCont(snl[i])) i += 1;
-        if (i > start) contextSrcs.add(snl.slice(start, i));
-      }
-      continue;
-    }
-    i += 1;
-  }
-  return { macros: Array.from(macros), contextSrcs: Array.from(contextSrcs) };
-}
+export { extractSnlReferences } from './snlReferences';
 
 /** Report from {@link regenerateDependencyRelationships}. */
 export interface DependencyGenReport {

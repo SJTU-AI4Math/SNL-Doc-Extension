@@ -6,7 +6,7 @@ function scope(p: EntryPointer, text: string) {
   const raw = resolvePointerText(p, text); if (raw.status !== 'ok') throw Error(JSON.stringify(raw));
   return { ...compilePointerScope(p, raw.range, text), entryId: '' };
 }
-const line = (extra: object = {}): EntryPointer => ({ file: 'x', mode: 'lines', line: 2, beforeLines: 0, afterLines: 0, ...extra });
+const line = (extra: object = {}): EntryPointer => ({ file: 'x', mode: 'lines', line: 2, ...extra });
 describe('compiled inverse scope contract', () => {
   it('compares identity alone without locale collation and treats omitted package as empty', () => {
     const locale = vi.spyOn(String.prototype, 'localeCompare').mockImplementation(() => { throw Error('locale collation forbidden'); });
@@ -38,17 +38,17 @@ describe('compiled inverse scope contract', () => {
       const candidates = [
         ...input,
         { ...compiled, entryId: 'A', priority: -1 },
-        { ...scope(line({ beforeLines: 1 }), 'a\nabc\nz'), entryId: 'B' },
+        { ...scope(line({ line: 1, endLine: 2 }), 'a\nabc\nz'), entryId: 'B' },
       ];
       expect(rankCompiledScopes(candidates, x => x, 2, 2)).toEqual(expected);
     }
   });
-  it('preserves independent omission, explicit zero, signed fractional priority and columns', () => {
+  it('ignores independently omitted legacy fields and preserves signed fractional priority and columns', () => {
     expect(normalizeEntryPointer(line({ column: 2, endColumn: 4, priority: 0 }))).toMatchObject({ column: 2, endColumn: 4, priority: 0 });
     for (const priority of [-1.5, 0, .25]) expect(scope(line({ priority }), 'a\nabc\nz').priority).toBe(priority);
     const text = Array(50).fill('row').join('\n');
-    expect(scope({ file:'x', mode:'lines', line:20, beforeLines:0 }, text)).toMatchObject({ startLine:20,endLine:35 });
-    expect(scope({ file:'x', mode:'lines', line:20, afterLines:0 }, text)).toMatchObject({ startLine:5,endLine:20 });
+    expect(scope(line({ line:20, beforeLines:0 }), text)).toMatchObject({ startLine:20,endLine:20 });
+    expect(scope(line({ line:20, afterLines:0 }), text)).toMatchObject({ startLine:20,endLine:20 });
   });
   it.each([0,-1,1.5,NaN,Infinity,'2',Number.MAX_SAFE_INTEGER+1])('rejects malformed columns %s instead of widening', column => {
     expect(normalizeEntryPointer(line({ column }))).toBeNull();
@@ -66,22 +66,23 @@ describe('compiled inverse scope contract', () => {
     expect(a).toMatchObject({ startOffset:3,endOffset:5,span:2,endInclusive:false });
     expect(scopeContains(a,2,2)).toBe(true); expect(scopeContains(a,2,3)).toBe(false);
     expect(rankCompiledScopes([a,b],x=>x,2,3)).toEqual([b]);
-    expect(scope(line({beforeLines:1,afterLines:1}),text)).toMatchObject({startOffset:0,endOffset:10,span:10,endLine:3,endColumn:1,endInclusive:true});
+    expect(scope(line({line:1,endLine:3}),text)).toMatchObject({startOffset:0,endOffset:10,span:10,endLine:3,endColumn:1,endInclusive:true});
   });
-  it('includes EOL and empty EOF caret for whole rows/buffer rows, but not precise end', () => {
+  it('includes EOL and explicitly addressed empty EOF caret, but not precise end', () => {
     const text='a\nxyz\n';
     const whole=scope(line(),text); expect(scopeContains(whole,2,4)).toBe(true);
     const precise=scope(line({endColumn:4}),text); expect(scopeContains(precise,2,4)).toBe(false);
-    const added=scope(line({afterLines:1}),text); expect(scopeContains(added,3,1)).toBe(true); expect(scopeContains(added,3,2)).toBe(false);
-    const point=scope({file:'x',mode:'regex',pattern:'$',beforeLines:0,afterLines:0},'');
+    const eof=scope(line({endLine:3}),text); expect(scopeContains(eof,3,1)).toBe(true); expect(scopeContains(eof,3,2)).toBe(false);
+    expect(scopeContains(whole,3,1)).toBe(false);
+    const point=scope({file:'x',mode:'regex',pattern:'$'},'');
     expect(scopeContains(point,1,1)).toBe(true); expect(scopeContains(point,1,2)).toBe(false);
     expect(isCompiledPointerScope(point)).toBe(true);
-    const newline=scope({file:'x',mode:'regex',pattern:'a\\n',beforeLines:0,afterLines:0},'a\n');
+    const newline=scope({file:'x',mode:'regex',pattern:'a\\n'},'a\n');
     expect(scopeContains(newline,2,1)).toBe(false);
   });
-  it('ranks by priority then actual expanded UTF16 span and retains all ties, never nearest', () => {
+  it('ranks by priority then exact UTF16 span and retains all ties, never nearest', () => {
     const text='long first row\nabc\nend';
-    const big=scope(line({beforeLines:1,priority:-.5}),text);
+    const big=scope(line({line:1,endLine:2,priority:-.5}),text);
     const small=scope(line({priority:-.5}),text);
     const tie={...small};
     expect(rankCompiledScopes([big,small,tie],x=>x,2,2)).toEqual([small,tie]);

@@ -31,6 +31,7 @@ const MESSAGES = defineUiMessages('infoview', {
   title: 'SNL Infoview', loadingLibraries: 'Loading libraries…',
   libraries: { arg: 'count', one: '{count} library', other: '{count} libraries' },
   entries: { arg: 'count', one: '{count} entry', other: '{count} entries' },
+  frozenGraphTitle: 'Open the relationship graph for this frozen export',
   viewGraph: 'View Graph', viewPoolGraph: 'Open the pool-wide relationship graph',
   editDashboard: 'Edit in Dashboard', editDashboardTitle: 'Open the Dashboard (management surface)',
   noLibrariesPrefix: 'No libraries yet. Create one via', createLibraryCommand: 'SNL: Create Library',
@@ -53,6 +54,7 @@ const MESSAGES = defineUiMessages('infoview', {
   editDashboard: '在仪表板中编辑', editDashboardTitle: '打开仪表板管理界面',
   noLibrariesPrefix: '尚无文档库。请通过', createLibraryCommand: 'SNL：创建文档库', noLibrariesMiddle: '在仪表板中创建，或粘贴已有的',
   noLibrariesSuffix: '目录。', noMeta: '无 meta.json', back: '← 返回', backTitle: '返回文档库列表',
+  frozenGraphTitle: '打开本次冻结导出的关系图',
   libraryGraphTitle: '打开文档库“{slug}”的诱导关系子图', exportHtml: '导出 HTML',
   exportTitle: '将文档库“{slug}”导出为静态 HTML 文档', editLibrary: '编辑此文档库',
   editLibraryTitle: '打开文档库“{slug}”的编辑器', emptyLibrary: '此文档库尚无条目。请通过仪表板添加。',
@@ -346,7 +348,7 @@ export function LibraryLayer({
             <ToolbarButton label={t('back')} onClick={ctx.goBack} title={t('backTitle')} />
             {useReaderCapabilities().graph ? <ToolbarButton
               label={t('viewGraph')}
-              title={t('libraryGraphTitle', { slug })}
+              title={useReaderCapabilities().edit ? t('libraryGraphTitle', { slug }) : t('frozenGraphTitle')}
               onClick={() =>
                 ctx.postMessage({
                   type: 'openInfoviewGraphForLibrary',

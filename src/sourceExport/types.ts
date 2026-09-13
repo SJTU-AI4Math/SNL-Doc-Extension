@@ -56,7 +56,7 @@ export interface SourcePointer {
   reason?: string;
 }
 export interface SourceManifest {
-  schemaVersion: 'snl.export.sources/v2';
+  schemaVersion: 'snl.export.sources/v3';
   exportId: string;
   renderSnapshotId: string;
   workspaceName: string;

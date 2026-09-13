@@ -105,10 +105,14 @@ export async function revealResolvedPointer(resolved: ResolvedPointer): Promise<
       tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === targetUri
     )
   );
-  await vscode.window.showTextDocument(doc, {
+  const editor = await vscode.window.showTextDocument(doc, {
     viewColumn: existingGroup?.viewColumn ?? vscode.ViewColumn.One,
     selection,
     preserveFocus: false,
     preview: false
   });
+  // showTextDocument transports only a Range, losing selection direction.
+  // Keep the full source selected, but put the caret inside a half-open range
+  // so an immediate reverse lookup uses its start, not its excluded end.
+  editor.selection = new vscode.Selection(endPos, startPos);
 }

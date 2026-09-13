@@ -1,8 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { promises as fs } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 const state = vi.hoisted(() => ({
   groups: [] as Array<{ viewColumn: number; tabs: Array<{ input: unknown; isActive: boolean }> }>,
-  showCalls: [] as Array<{ document: unknown; options: Record<string, unknown> }>
+  showCalls: [] as Array<{ document: unknown; options: Record<string, unknown> }>,
+  editors: [] as Array<{ selection: vscode.Selection }>,
+  sourceText: 'xxxx\nxxxx\nxxxxxxxxx\nxxxx'
 }));
 
 vi.mock('vscode', () => {
@@ -10,7 +15,14 @@ vi.mock('vscode', () => {
     constructor(public readonly line: number, public readonly character: number) {}
   }
   class Selection {
-    constructor(public readonly anchor: Position, public readonly active: Position) {}
+    readonly start: Position;
+    readonly end: Position;
+    constructor(public readonly anchor: Position, public readonly active: Position) {
+      const reversed = anchor.line > active.line ||
+        (anchor.line === active.line && anchor.character > active.character);
+      this.start = reversed ? active : anchor;
+      this.end = reversed ? anchor : active;
+    }
   }
   class TabInputText {
     constructor(public readonly uri: { toString(): string }) {}
@@ -28,8 +40,8 @@ vi.mock('vscode', () => {
     workspace: {
       openTextDocument: vi.fn(async (uri: { toString(): string }) => ({
         uri,
-        lineCount: 4,
-        lineAt: (line: number) => ({ range: { end: new Position(line, line === 2 ? 9 : 4) } })
+        lineCount: state.sourceText.split(/\r\n|\r|\n/).length,
+        lineAt: (line: number) => ({ range: { end: new Position(line, state.sourceText.split(/\r\n|\r|\n/)[line].length) } })
       }))
     },
     window: {
@@ -45,14 +57,20 @@ vi.mock('vscode', () => {
         )) {
           group.tabs.push({ input: new TabInputText(document.uri), isActive: true });
         }
-        return { document };
+        // TextDocumentShowOptions.selection is a Range. Model the real
+        // extHostTextEditors Range.from transport: anchor/active are lost.
+        const range = options.selection as Selection;
+        const editor = { document, selection: new Selection(range.start, range.end) };
+        state.editors.push(editor as unknown as { selection: vscode.Selection });
+        return editor;
       })
     }
   };
 });
 
 import * as vscode from 'vscode';
-import { revealResolvedPointer } from './pointer';
+import { resolveEntryPointer, revealResolvedPointer, type EntryPointer } from './pointer';
+import { buildPointerIndex, findNearestEntries } from './pointerSync';
 
 const targetPath = '/workspace/source.lean';
 const targetUri = vscode.Uri.file(targetPath);
@@ -71,6 +89,8 @@ describe('pointer reveal tab policy', () => {
   beforeEach(() => {
     state.groups = [];
     state.showCalls = [];
+    state.editors = [];
+    state.sourceText = 'xxxx\nxxxx\nxxxxxxxxx\nxxxx';
     vi.clearAllMocks();
   });
 
@@ -125,6 +145,103 @@ describe('pointer reveal tab policy', () => {
       selection: new vscode.Selection(new vscode.Position(1, 0), new vscode.Position(2, 9)),
       preserveFocus: false,
       preview: false
+    });
+  });
+});
+
+describe('public source reveal → active caret → inverse lookup', () => {
+  let root: string;
+  beforeEach(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'snl-reveal-caret-'));
+    state.groups = [];
+    state.showCalls = [];
+    state.editors = [];
+    vi.clearAllMocks();
+  });
+  afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
+
+  it('round-trips a zero-buffer multiline half-open source range', async () => {
+    state.sourceText = 'prefix\n  def image :=\n    target suffix\nnext';
+    await fs.writeFile(path.join(root, 'source.lean'), state.sourceText);
+    const pointer = { file: 'source.lean', mode: 'lines' as const,
+      line: 2, column: 3, endLine: 3, endColumn: 11, beforeLines: 0, afterLines: 0 };
+    const index = await buildPointerIndex(root, [{ id: 'Set.image', pointer }]);
+    const forward = await resolveEntryPointer(vscode.Uri.file(root), pointer);
+    expect(forward.status).toBe('ok');
+    await revealResolvedPointer(forward);
+
+    const selection = state.editors[0].selection;
+    expect(findNearestEntries(index, pointer.file,
+      selection.active.line + 1, selection.active.character + 1).candidates.map(c => c.entryId))
+      .toEqual(['Set.image']);
+    expect(selection.start).toEqual(new vscode.Position(1, 2));
+    expect(selection.end).toEqual(new vscode.Position(2, 10));
+    expect(selection.active).toEqual(selection.start);
+    expect(selection.anchor).toEqual(selection.end);
+    expect(findNearestEntries(index, pointer.file, 3, 11).candidates).toEqual([]);
+  });
+
+  describe.each([['LF', '\n'], ['CRLF', '\r\n']])('%s boundaries', (_name, eol) => {
+    const fixtures: Array<{
+      name: string; text: string; pointer: EntryPointer;
+      start: [number, number]; end: [number, number]; selected: string;
+    }> = [
+      { name: 'multiline explicit columns', text: `pre${eol}  目标😀${eol}body tail`,
+        pointer: { file: 'source.lean', mode: 'lines', line: 2, column: 3, endLine: 3, endColumn: 5 },
+        start: [1, 2], end: [2, 4], selected: `目标😀${eol}body` },
+      { name: 'single-line explicit columns', text: `pre${eol}  目标😀 tail`,
+        pointer: { file: 'source.lean', mode: 'lines', line: 2, column: 3, endLine: 2, endColumn: 7 },
+        start: [1, 2], end: [1, 6], selected: '目标😀' },
+      { name: 'multiline regex', text: `pre${eol}  目标😀${eol}body tail`,
+        pointer: { file: 'source.lean', mode: 'regex', pattern: '目标😀\\r?\\nbody' },
+        start: [1, 2], end: [2, 4], selected: `目标😀${eol}body` },
+      { name: 'single-line regex', text: `pre${eol}  目标😀 tail`,
+        pointer: { file: 'source.lean', mode: 'regex', pattern: '目标😀' },
+        start: [1, 2], end: [1, 6], selected: '目标😀' },
+      { name: 'regex ending at next line start', text: `pre${eol}  目标😀${eol}next`,
+        pointer: { file: 'source.lean', mode: 'regex', pattern: '目标😀\\r?\\n' },
+        start: [1, 2], end: [2, 0], selected: `目标😀${eol}` },
+      { name: 'empty explicit range', text: `pre${eol}  target`,
+        pointer: { file: 'source.lean', mode: 'lines', line: 2, column: 3, endLine: 2, endColumn: 3 },
+        start: [1, 2], end: [1, 2], selected: '' },
+      { name: 'zero-width regex', text: `pre${eol}  target`,
+        pointer: { file: 'source.lean', mode: 'regex', pattern: '(?=target)' },
+        start: [1, 2], end: [1, 2], selected: '' },
+      { name: 'zero-width regex at empty EOF line', text: `pre${eol}`,
+        pointer: { file: 'source.lean', mode: 'regex', pattern: '(?![\\s\\S])' },
+        start: [1, 0], end: [1, 0], selected: '' },
+      { name: 'empty file', text: '',
+        pointer: { file: 'source.lean', mode: 'lines', line: 1, column: 1, endColumn: 1 },
+        start: [0, 0], end: [0, 0], selected: '' }
+    ];
+    it.each(fixtures)('$name retains the full source range and queries its active caret', async fixture => {
+      state.sourceText = fixture.text;
+      await fs.writeFile(path.join(root, 'source.lean'), fixture.text);
+      const pointer = { ...fixture.pointer, beforeLines: 0, afterLines: 0 };
+      const index = await buildPointerIndex(root, [{ id: 'target', pointer }]);
+      const forward = await resolveEntryPointer(vscode.Uri.file(root), pointer);
+      expect(forward.status).toBe('ok');
+      await revealResolvedPointer(forward);
+      const selection = state.editors[0].selection;
+      const query = (position: vscode.Position) => findNearestEntries(index, pointer.file,
+        position.line + 1, position.character + 1).candidates.map(c => c.entryId);
+      expect(query(selection.active)).toEqual(['target']);
+      expect(selection.start).toEqual(new vscode.Position(...fixture.start));
+      expect(selection.end).toEqual(new vscode.Position(...fixture.end));
+      expect(selection.active).toEqual(selection.start);
+      expect(selection.anchor).toEqual(selection.end);
+      const offset = (position: vscode.Position) => fixture.text.split(eol).slice(0, position.line)
+        .reduce((total, line) => total + line.length + eol.length, 0) + position.character;
+      expect(fixture.text.slice(offset(selection.start), offset(selection.end))).toBe(fixture.selected);
+
+      // Ordinary user-selected forward ranges still query the active end:
+      // exclude nonempty half-open ends; zero-width points include only themselves.
+      const userSelection = new vscode.Selection(selection.start, selection.end);
+      expect(query(userSelection.active)).toEqual(fixture.selected ? [] : ['target']);
+      expect(query(new vscode.Position(selection.end.line, selection.end.character + 1))).toEqual([]);
+      if (selection.start.character > 0) {
+        expect(query(new vscode.Position(selection.start.line, selection.start.character - 1))).toEqual([]);
+      }
     });
   });
 });

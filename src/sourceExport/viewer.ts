@@ -286,7 +286,7 @@ export function installSourceViewer(): (() => void) | undefined {
           const saved=restore?.view??views.get(id);if(saved)e.restoreViewState(saved);
           while(models.size>4){const oldest=models.keys().next().value!;models.get(oldest)?.dispose();models.delete(oldest);}
           root.dataset.modelCount=String(models.size);root.dataset.fileId=id;
-          if(pointer?.range){const r=pointer.range;if(model.validateRange(range(r)).equalsRange(range(r))===false)throw Error('Pointer range exceeds source');e.setSelection(range(r),'snl-source');e.revealRangeInCenter(range(r));decorations?.set([{range:range(r),options:{className:'snl-source-range',isWholeLine:false,linesDecorationsClassName:'snl-source-range-gutter'}}]);}
+          if(pointer?.range){const r=pointer.range;if(model.validateRange(range(r)).equalsRange(range(r))===false)throw Error('Pointer range exceeds source');e.setSelection(new monaco.Selection(r.endLine,r.endColumn,r.startLine,r.startColumn),'snl-source');e.revealRangeInCenter(range(r));decorations?.set([{range:range(r),options:{className:'snl-source-range',isWholeLine:false,linesDecorationsClassName:'snl-source-range-gutter'}}]);}
           status.textContent='Read-only · '+file.byteLength+' bytes · SHA-256 verified';layout();
         }
       }finally{origin--;}

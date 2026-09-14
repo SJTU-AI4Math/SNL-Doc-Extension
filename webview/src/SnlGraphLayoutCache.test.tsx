@@ -19,23 +19,27 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); set_content_language('en'); }
 it('renders host cached coordinates and edge routes without executing layout; recolors from current source', () => {
   const msg = packet();
   const compute = vi.spyOn(geometry, 'layout');
-  const { container } = render(<SnlGraphApp />);
+  const { container } = render(<SnlGraphApp initialAtomicDependenciesOnly={false} />);
   send(msg);
   expect(screen.getByRole('button', { name: 'Entry a (a)' })).toBeTruthy();
   expect(compute).not.toHaveBeenCalled();
   const expected = msg.layoutCache.layout.nodes.find(n => n.id === 'a')!;
   const node = screen.getByRole('button', { name: 'Entry a (a)' });
-  expect(node.getAttribute('transform')).toBe(`translate(${expected.x} ${expected.y})`);
-  expect(node.querySelector('rect')?.getAttribute('fill')).toBe('#abcdef');
+  expect(node.getAttribute('transform')).toBe(`translate(${expected.x} ${expected.y}) scale(1)`);
+  expect(node.getAttribute('data-node-shape')).toBe('dot');
+  expect(node.querySelector('circle')?.getAttribute('fill')).toBe('#abcdef');
+  expect(container.querySelector('[data-edge-id]')).toBeNull();
+  fireEvent.click(screen.getByTitle('Expand filters'));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Show relationships' }));
   const edge = msg.layoutCache.layout.edges.find(e => e.id === 'ac')!;
   const target = msg.layoutCache.layout.nodes.find(n => n.id === 'c')!;
-  expect([...container.querySelectorAll('path')].some(p => p.getAttribute('d') === geometry.edgePath(expected,target,edge.waypoints).d)).toBe(true);
+  expect([...container.querySelectorAll('path')].some(p => p.getAttribute('d') === geometry.edgePath(expected,target,edge.waypoints, { fromShape: 'dot', toShape: 'dot' }).d)).toBe(true);
   fireEvent.click(node); // selection is not generated data
   expect(compute).not.toHaveBeenCalled();
 });
 it('keeps filtered projections in memory and returns to cached geometry without storing selection', () => {
   const msg = packet(); const compute = vi.spyOn(geometry, 'layout');
-  render(<SnlGraphApp />); send(msg);
+  render(<SnlGraphApp initialAtomicDependenciesOnly={false} />); send(msg);
   fireEvent.click(screen.getByTitle('Expand filters'));
   fireEvent.click(screen.getByRole('checkbox', { name: 'atomic deps only' }));
   expect(compute).toHaveBeenCalledTimes(1);
@@ -52,7 +56,7 @@ it.each(['scope','title','language','nonfinite','reference','style'])('rejects %
   if (reason === 'reference') msg.layoutCache.layout.edges[0].to = 'not-a-node';
   if (reason === 'style') msg.layoutCache.layout.nodes[0].background = 'url(evil)';
   const compute = vi.spyOn(geometry, 'layout');
-  const { container } = render(<SnlGraphApp />); send(msg);
+  const { container } = render(<SnlGraphApp initialAtomicDependenciesOnly={false} />); send(msg);
   expect(compute).toHaveBeenCalledTimes(1);
   expect(container.innerHTML).not.toContain('Infinity');
   expect(container.innerHTML).not.toContain('url(evil)');

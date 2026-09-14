@@ -13,7 +13,8 @@ export function frozenRelationshipGraph(snapshot: FrozenReaderSnapshot): GraphMe
     type: 'graph', scope: { mode: 'pool' }, title: snapshot.library.title, warnings: [], edges,
     nodes: snapshot.entries.filter(entry => participating.has(entry.id)).map(entry => ({
       id: entry.id, packageId: entry.package?.trim() || '_unpackaged', title: entry.title || entry.id,
-      kind: kinds.get(entry.kind)?.name ?? entry.kind, kindId: entry.kind, coloring: kinds.get(entry.kind)?.coloring ?? null
+      kind: kinds.get(entry.kind)?.name ?? entry.kind, kindId: entry.kind, coloring: kinds.get(entry.kind)?.coloring ?? null,
+      tags: [...(entry.tags ?? [])]
     })),
     entryOptions: snapshot.entries.map(entry => ({ id: entry.id, package: entry.package, title: entry.title, hasContent: !!entry.content.snl, snl: entry.content.snl })),
     entryPackages: snapshot.entryPackages, macros: snapshot.macros, macroKinds: snapshot.macroKinds

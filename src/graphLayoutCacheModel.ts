@@ -22,7 +22,8 @@ export function graphLayoutInput(library: string | null, language: string, nodes
   const participating = new Set(validEdges.flatMap(e => [e.from, e.to]));
   return {
     version: GRAPH_LAYOUT_VERSION, library, language,
-    parameters: { nodeGapX: parameters.nodeGapX, layerGapY: parameters.layerGapY }, metrics: LAYOUT_METRICS,
+    parameters: { nodeGapX: parameters.nodeGapX, layerGapY: parameters.layerGapY,
+      mode: parameters.mode ?? 'rectangle', packing: !parameters.mode || parameters.mode === 'rectangle' ? 'bands' : parameters.packing ?? 'bands' }, metrics: LAYOUT_METRICS,
     nodes: nodes.filter(n => participating.has(n.id)).map(n => ({ id: n.id, packageId: n.packageId || '_unpackaged',
       title: n.title, kind: n.kind, kindId: n.kindId, color: '', background: '' })).sort(lexical),
     edges: validEdges.map(e => ({ id: e.id, from: e.from, to: e.to, label: e.label,
@@ -36,13 +37,44 @@ const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v ===
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1e9;
 const keys = (v: Record<string, unknown>, expected: string[]): boolean => Object.keys(v).length === expected.length && expected.every(k => Object.hasOwn(v, k));
 
+/** Only the generated M/A/L/A/Z sector grammar, not arbitrary SVG path text. */
+function isSectorPath(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  const groups = value.match(/^M (.+) A (.+) L (.+) A (.+) Z$/);
+  if (!groups) return false;
+  return groups.slice(1).every((group, index) => {
+    const tokens = group.trim().split(/\s+/);
+    const arc = index === 1 || index === 3;
+    if (tokens.length !== (arc ? 7 : 2) || !tokens.every(token =>
+      /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(token) &&
+      Number.isFinite(Number(token)) && Math.abs(Number(token)) <= 1e9)) return false;
+    return !arc || (Number(tokens[0]) >= 0 && Number(tokens[1]) >= 0 &&
+      /^[01]$/.test(tokens[3]) && /^[01]$/.test(tokens[4]));
+  });
+}
+
 /** Cache bytes can never inject titles, styles, identities, dangling routes, nonfinite
  * SVG coordinates, or viewport/selection state. Validate against the CURRENT input. */
 export function isGraphLayout(value: unknown, input: GraphLayoutInput): value is Layout {
-  if (!object(value) || !keys(value, ['nodes','edges','clusters','width','height']) ||
+  if (!object(value) || !keys(value, ['nodes','edges','clusters','width','height', ...(value.radial === undefined ? [] : ['radial'])]) ||
       !finite(value.width) || !finite(value.height) || !Array.isArray(value.nodes) || !Array.isArray(value.edges) || !Array.isArray(value.clusters) ||
       value.nodes.length !== input.nodes.length || value.edges.length !== input.edges.length) return false;
   const width = value.width, height = value.height;
+  const radial = value.radial;
+  const expectsRadial = input.nodes.length > 0 && input.parameters.mode !== 'rectangle';
+  if (expectsRadial !== (radial !== undefined)) return false;
+  if (radial !== undefined) {
+    if (!object(radial) || !keys(radial, ['centerX','centerY','innerRadius','packing','radiusSamples','layerRadii','maxLayer','xMin','xSpan','yMin','startAngle','sweep']) ||
+        !['centerX','centerY','innerRadius','xMin','xSpan','yMin','maxLayer','sweep'].every(k => finite(radial[k])) ||
+        (radial.xSpan as number) <= 0 || (radial.sweep as number) <= 0 || (radial.sweep as number) > Math.PI * 2 ||
+        typeof radial.startAngle !== 'number' || !Number.isFinite(radial.startAngle) || Math.abs(radial.startAngle) > Math.PI * 2 ||
+        radial.packing !== input.parameters.packing || radial.centerX !== width/2 || radial.centerY !== height/2 ||
+        !Number.isInteger(radial.maxLayer) || radial.maxLayer as number >= input.nodes.length ||
+        !Array.isArray(radial.layerRadii) || !Array.isArray(radial.radiusSamples) ||
+        radial.layerRadii.length !== (radial.maxLayer as number)+1 || radial.radiusSamples.length !== radial.layerRadii.length ||
+        !radial.layerRadii.every(finite) || !radial.radiusSamples.every(row => Array.isArray(row) && row.every(p => object(p) && keys(p,['x','radius']) && finite(p.x) && finite(p.radius))) ||
+        radial.radiusSamples.reduce((sum,row) => sum + (row as unknown[]).length,0) !== input.nodes.length) return false;
+  }
   const bounds = (v: Record<string, unknown>): boolean => finite(v.x) && finite(v.y) && finite(v.w) && finite(v.h) &&
     v.w > 0 && v.h > 0 && v.x + v.w <= width && v.y + v.h <= height;
   const sourceNodes = new Map(input.nodes.map(n => [n.id, n]));
@@ -72,11 +104,19 @@ export function isGraphLayout(value: unknown, input: GraphLayoutInput): value is
   }
   const seenPackages = new Set<string>();
   for (const c of value.clusters) {
-    if (!object(c) || !keys(c, ['packageId','x','y','w','h','nodeCount']) || typeof c.packageId !== 'string' ||
-      seenPackages.has(c.packageId) || !bounds(c)) return false;
+    if (!object(c) || !keys(c, ['packageId','x','y','w','h','nodeCount', ...(expectsRadial ? ['sector'] : [])]) || typeof c.packageId !== 'string' ||
+      seenPackages.has(c.packageId) || (expectsRadial ? !['x','y','w','h'].every(k => finite(c[k])) : !bounds(c))) return false;
     const members = clusterMembers.get(c.packageId);
-    if (!members || c.nodeCount !== members.length || !members.every(n => n.x >= (c.x as number) && n.y >= (c.y as number) &&
-      n.x+n.w <= (c.x as number)+(c.w as number) && n.y+n.h <= (c.y as number)+(c.h as number))) return false;
+    if (!members || c.nodeCount !== members.length || (!expectsRadial && !members.every(n => n.x >= (c.x as number) && n.y >= (c.y as number) &&
+      n.x+n.w <= (c.x as number)+(c.w as number) && n.y+n.h <= (c.y as number)+(c.h as number)))) return false;
+    if (expectsRadial) {
+      const sector = c.sector;
+      if (!object(sector) || !keys(sector,['path','startAngle','endAngle','outerRadius','labelAngle','labelX','labelY']) ||
+          !finite(sector.outerRadius) || sector.outerRadius <= 0 ||
+          !['outerRadius','labelX','labelY'].every(k => typeof sector[k] === 'number' && Number.isFinite(sector[k]) && Math.abs(sector[k] as number) <= 1e9) ||
+          !['startAngle','endAngle','labelAngle'].every(k => typeof sector[k] === 'number' && Number.isFinite(sector[k]) && Math.abs(sector[k] as number) <= Math.PI*4) ||
+          !isSectorPath(sector.path)) return false;
+    }
     seenPackages.add(c.packageId);
   }
   return seenPackages.size === clusterMembers.size && (input.nodes.length > 0 || (width === 0 && height === 0));

@@ -51,6 +51,7 @@ export type EntryContent = BasicsEntryContent;
 
 export interface EntryData {
   id: string;
+  tags?: string[];
   kind: string;
   title: Localized<string, string>;
   content: EntryContent;

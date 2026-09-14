@@ -1,3 +1,4 @@
+import { frozenRelationshipGraph } from './browserDiscovery';
 import { act, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -109,9 +110,13 @@ it('mounts the shared semantic graph, filters real edges, and returns node readi
   await mount('#/graph?return=%23%2Fnode%2Fsecond');
   expect(visibleMain()?.textContent ?? '').toContain('2 nodes');
   expect(visibleMain().textContent).toContain('1 edge');
+  expect(visibleMain().querySelectorAll('g[aria-label^="Relationship"]')).toHaveLength(0); // paint is opt-in, topology is retained
+  await click(visibleMain().querySelector('button[title="Expand filters"]'));
+  const showRelationships = Array.from(visibleMain().querySelectorAll('label')).find(label => label.textContent === 'Show relationships')?.querySelector('input');
+  expect(showRelationships?.checked).toBe(false);
+  await click(showRelationships ?? null);
   expect(visibleMain().querySelectorAll('g[aria-label^="Relationship"]')).toHaveLength(1);
   expect(visibleMain().querySelectorAll('g[aria-label^="Relationship"][role="button"]')).toHaveLength(0);
-  await click(visibleMain().querySelector('button[title="Expand filters"]'));
   const atomic = Array.from(visibleMain().querySelectorAll('label')).find(label => label.textContent?.includes('atomic deps only'))?.querySelector('input');
   expect(atomic?.checked).toBe(true);
   expect(visibleMain().querySelector('g[aria-label^="Relationship"]')?.getAttribute('aria-label')).toContain('explains');
@@ -181,4 +186,13 @@ it('mounts the shared SNoogL search on a deep link and returns Entry reading to 
   await click(visibleMain().querySelector('.snl-panel-header button[aria-label="Back"]'));
   expect(location.hash).toBe(searchHash);
   expect(visibleMain().querySelector<HTMLInputElement>('input[type="text"]')?.value).toBe('Alpha');
+});
+
+it('projects exact canonical tags through the shared frozen/local graph adapter without changing the source', () => {
+  const tagged = {...snapshot, entries: [{...alpha,tags:['',' a,b ','__proto__','same','same']},beta]};
+  const before = JSON.stringify(tagged);
+  const graph = frozenRelationshipGraph(tagged);
+  expect(graph.nodes.find(n=>n.id==='Alpha')?.tags).toEqual(['',' a,b ','__proto__','same','same']);
+  expect(graph.nodes.find(n=>n.id==='Beta')?.tags).toEqual([]);
+  expect(JSON.stringify(tagged)).toBe(before);
 });

@@ -11,6 +11,7 @@ export interface LibrarySummary {
   title: string;
   entryCount?: number | null;
   relationshipCount?: number | null;
+  error?: string;
 }
 
 type LibrariesTableProps = {
@@ -55,7 +56,7 @@ export function LibrariesTable({ libraries, onOpen, onDelete, readOnly = false }
             >
               <td style={{ ...CELL, overflowWrap: 'anywhere' }}>{lib.title || lib.slug}</td>
               <td style={{ ...CELL, ...MONO, overflowWrap: 'anywhere' }}>{lib.slug}</td>
-              <td style={{ ...CELL, textAlign: 'right' }}>{lib.entryCount ?? '—'}</td>
+              <td style={{ ...CELL, textAlign: 'right' }}>{lib.entryCount ?? '—'}{lib.error ? <span role="alert" title={lib.error}> ⚠ {lib.error}</span> : null}</td>
               <td style={{ ...CELL, textAlign: 'right' }}>{lib.relationshipCount ?? '—'}</td>
               {!readOnly && onDelete && <RowDeleteCell
                 label={t('deleteLibrary', { id: lib.slug })}

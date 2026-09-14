@@ -474,6 +474,7 @@
     "test:pointer-editor": "node scripts/test-pointer-editor.mjs",
     "test:pointer-navigation": "npm run compile && npm run build:export-runtime && node scripts/test-pointer-navigation.mjs",
     "test:browser-reader-tools": "npm run compile && npm run build:export-runtime && node scripts/test-browser-reader-tools.mjs",
+    "test:dashboard-opening": "node scripts/test-dashboard-opening.mjs --build",
     "watch": "npm run build:host-basics && tsc -watch -p ./",
     "build:webview": "node scripts/build-webviews.mjs",
     "dev:webview": "vite --config webview/vite.config.ts",

@@ -23,7 +23,8 @@
 // dashed "+" bar (`AddBar`) that dispatches the section's create/init
 // message; when the list is empty the section shows only that bar.
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import type { DashboardStatistics } from '../../src/dashboardStatistics';
 import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
 import type { ThemedKindColoring } from '../../src/kindColoring';
 import { Button } from './components/Button';
@@ -49,26 +50,13 @@ interface EntryPackageSummary {
   id: string;
   name: string;
   description: string;
-  entryCount: number;
+  entryCount: number | null;
 }
 
 interface MacroPackageSummary {
   file: string;
   macroCount: number | null;
   active?: boolean;
-}
-
-/**
- * SNoogL search-index entry: one per macro across every package. Mirrors
- * snlDoc.ts's `AllMacroIndexEntry`. Deliberately narrow — no styles /
- * templates — because the search box only matches on `id` and shows the
- * origin package for context.
- */
-interface AllMacroIndexEntry {
-  id: string;
-  packageFile: string;
-  packageName: string;
-  kind?: string;
 }
 
 interface EntryKind {
@@ -89,18 +77,7 @@ interface MacroKind {
 
 interface EntryData {
   id: string;
-  kind: string;
   title: Localized<string, string>;
-  content: {
-    snl?: string;
-    typst?: Localized<string, string>;
-    latex?: Localized<string, string>;
-    markdown?: Localized<string, string>;
-    text?: Localized<string, string>;
-  };
-  /** TEMPORARY: exactly one Contributor string; this shape may change. */
-  contribution_info?: string | null;
-  pointer?: unknown;
 }
 
 interface RelationshipData {
@@ -112,7 +89,7 @@ interface RelationshipData {
 }
 
 interface DataStatusSummary {
-  status: 'missing' | 'invalid' | 'future' | 'current' | 'needsMigration';
+  status: 'missing' | 'invalid' | 'future' | 'current' | 'unchecked' | 'needsMigration';
   currentVersion: string | null;
   targetVersion: string;
   pendingCount: number;
@@ -125,6 +102,8 @@ interface DataOperationStatus {
   message?: string;
 }
 
+interface AsyncStatus { status: 'idle' | 'loading' | 'ready' | 'error'; message?: string }
+
 type SetupMessageType = 'init' | 'initEntryKinds' | 'initMacroKinds';
 
 interface SnlOverview {
@@ -134,8 +113,7 @@ interface SnlOverview {
   entryPackages: EntryPackageSummary[];
   libraries: LibrarySummary[];
   macroPackages: MacroPackageSummary[];
-  /** SNoogL search index — see AllMacroIndexEntry. */
-  allMacros: AllMacroIndexEntry[];
+  relationshipCount?: number | null;
   entryKinds: EntryKind[];
   macroKinds: MacroKind[];
   relationships: RelationshipData[];
@@ -153,7 +131,7 @@ const EMPTY: SnlOverview = {
   entryPackages: [],
   libraries: [],
   macroPackages: [],
-  allMacros: [],
+  relationshipCount: null,
   entryKinds: [],
   macroKinds: [],
   relationships: [],
@@ -168,22 +146,26 @@ const EMPTY: SnlOverview = {
 
 export function DashboardApp(): React.ReactElement {
   use_preferences_revision();
-  const t = useUiMessages(DASHBOARD_MESSAGES);
   const [overview, setOverview] = useState<SnlOverview>(EMPTY);
   const [dataOperation, setDataOperation] = useState<DataOperationStatus>({ status: 'idle' });
   const [setupBusy, setSetupBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const generation = useRef(0);
+  const [statisticsStatus, setStatisticsStatus] = useState<AsyncStatus>({ status: 'loading' });
+  const [relationshipsStatus, setRelationshipsStatus] = useState<AsyncStatus>({ status: 'loading' });
   const apiRef = useVsCodeApiRef();
 
   useEffect(() => {
 
     function onMessage(event: MessageEvent): void {
       const msg = event.data as
-        | { type: 'overview'; overview: SnlOverview }
+        | { type: 'overview'; generation?: number; overview: SnlOverview }
+        | ({ type: 'dashboardStatistics'; generation: number; statistics?: DashboardStatistics } & AsyncStatus)
+        | ({ type: 'dashboardRelationships'; generation: number; relationships?: RelationshipData[]; entries?: EntryData[] } & AsyncStatus)
         | ({ type: 'dataMigrationStatus' } & DataOperationStatus)
         | { type: 'setupStatus'; status: 'idle' | 'running' }
-        | { type: 'overviewError'; message: string }
+        | { type: 'overviewError'; generation?: number; message: string }
         | undefined;
       if (!msg) return;
       if (msg.type === 'dataMigrationStatus') {
@@ -198,12 +180,45 @@ export function DashboardApp(): React.ReactElement {
         setSetupBusy(msg.status === 'running');
         return;
       }
+      if (msg.type === 'dashboardStatistics') {
+        if (msg.generation !== generation.current) return;
+        setStatisticsStatus({ status: msg.status, message: msg.message });
+        if (msg.status === 'ready' && msg.statistics) {
+          const stats = msg.statistics;
+          const entries = new Map(stats.entryPackages.map(pkg => [pkg.id, pkg.entryCount]));
+          const macros = new Map(stats.macroPackages.map(pkg => [pkg.file, pkg.macroCount]));
+          const libraries = new Map(stats.libraries.map(lib => [lib.slug, lib]));
+          setOverview(previous => ({ ...previous,
+            totalEntryCount: stats.totalEntryCount, relationshipCount: stats.relationshipCount,
+            entryPackages: previous.entryPackages.map(pkg => ({ ...pkg, entryCount: entries.get(pkg.id) ?? null })),
+            macroPackages: previous.macroPackages.map(pkg => ({ ...pkg, macroCount: macros.get(pkg.file) ?? null })),
+            libraries: previous.libraries.map(lib => ({ ...lib, ...libraries.get(lib.slug) }))
+          }));
+        }
+        return;
+      }
+      if (msg.type === 'dashboardRelationships') {
+        if (msg.generation !== generation.current) return;
+        setRelationshipsStatus({ status: msg.status, message: msg.message });
+        if (msg.status === 'ready') setOverview(previous => ({ ...previous,
+          relationships: msg.relationships ?? [], entries: msg.entries ?? [] }));
+        return;
+      }
       if (msg.type === 'overviewError') {
+        if (msg.generation !== undefined && msg.generation < generation.current) return;
+        if (msg.generation !== undefined) generation.current = msg.generation;
         setLoadError(msg.message);
+        setStatisticsStatus({ status: 'idle' });
+        setRelationshipsStatus({ status: 'idle' });
         setLoaded(true);
         return;
       }
       if (msg.type !== 'overview') return;
+      if (msg.generation !== undefined && msg.generation < generation.current) return;
+      generation.current = msg.generation ?? generation.current + 1;
+      const canScan = msg.overview.dataStatus?.status === 'unchecked';
+      setStatisticsStatus({ status: canScan ? 'loading' : typeof msg.overview.totalEntryCount === 'number' ? 'ready' : 'idle' });
+      setRelationshipsStatus({ status: msg.overview.relationships ? 'ready' : canScan ? 'loading' : 'idle' });
       setLoadError(null);
       setOverview({
         ...EMPTY,
@@ -224,27 +239,7 @@ export function DashboardApp(): React.ReactElement {
     api.postMessage({ type, ...choices });
   };
 
-  if (!loaded) {
-    return (
-      <main style={PANEL_STYLE}>
-        <PanelHeader vsApi={apiRef.current} title={t('title')} />
-        <p style={{ opacity: 0.7 }}>{t('loading')}</p>
-      </main>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <main style={PANEL_STYLE}>
-        <PanelHeader vsApi={apiRef.current} title={t('title')} />
-        <p role="alert" style={{ color: 'var(--vscode-errorForeground)' }}>
-          {t('overviewLoadError', { message: loadError })}
-        </p>
-      </main>
-    );
-  }
-
-  if (!overview.hasSnlDoc) {
+  if (loaded && !loadError && !overview.hasSnlDoc) {
     return (
       <NotInitialized
         overview={overview}
@@ -262,6 +257,10 @@ export function DashboardApp(): React.ReactElement {
       dataOperation={dataOperation}
       setupBusy={setupBusy}
       onStartSetup={startSetup}
+      catalogReady={loaded && !loadError}
+      loadError={loadError}
+      statisticsStatus={statisticsStatus}
+      relationshipsStatus={relationshipsStatus}
     />
   );
 }
@@ -284,6 +283,7 @@ function NotInitialized({
   return (
     <main style={PANEL_STYLE} aria-busy={busy}>
       <PanelHeader vsApi={api} title={t('title')} />
+      {overview.dataStatus.message ? <p role="status">{overview.dataStatus.message}</p> : null}
       <p style={{ margin: '0 0 1rem', opacity: 0.85 }}>
         {t('setupIntroBefore')} <code>.SNL_Doc/</code> {t('setupIntroAfter')}
       </p>
@@ -323,13 +323,21 @@ function Initialized({
   api,
   dataOperation,
   setupBusy,
-  onStartSetup
+  onStartSetup,
+  catalogReady,
+  loadError,
+  statisticsStatus,
+  relationshipsStatus
 }: {
   overview: SnlOverview;
   api: VsCodeApi | undefined;
   dataOperation: DataOperationStatus;
   setupBusy: boolean;
   onStartSetup: (type: SetupMessageType) => void;
+  catalogReady: boolean;
+  loadError: string | null;
+  statisticsStatus: AsyncStatus;
+  relationshipsStatus: AsyncStatus;
 }): React.ReactElement {
   const t = useUiMessages(DASHBOARD_MESSAGES);
   // All sections default collapsed. State is local (per-mount) — cheap and
@@ -383,6 +391,12 @@ function Initialized({
       <p role="status" aria-live="polite" aria-label={t('setupStatus')} style={{ minHeight: '1.25rem' }}>
         {setupBusy ? t('initializing') : ''}
       </p>
+      {loadError ? <p role="alert">{t('overviewLoadError', { message: loadError })}</p>
+        : !catalogReady ? <p role="status">{t('loading')}</p> : null}
+      <p role={statisticsStatus.status === 'error' ? 'alert' : 'status'} aria-label={t('statistics')}>
+        {statisticsStatus.status === 'error' ? t('statisticsError', { message: statisticsStatus.message ?? '' })
+          : statisticsStatus.status === 'loading' ? t('statisticsPending') : statisticsStatus.status === 'idle' ? t('statisticsUnavailable') : t('entriesInPool', { count: totalEntries })}
+      </p>
       <StaticSection
         title={t('dataMaintenance')}
         subtitle={`${overview.dataStatus.currentVersion ?? t('unknown')} → ${overview.dataStatus.targetVersion}`}
@@ -405,7 +419,7 @@ function Initialized({
           </>
         }
       >
-        <p style={{ margin: 0 }}>{overview.dataStatus.message || t('dataNotChecked')}</p>
+        <p style={{ margin: 0 }}>{overview.dataStatus.message || t(overview.dataStatus.status === 'future' ? 'futureData' : overview.dataStatus.status === 'needsMigration' ? 'needsMigration' : 'dataNotChecked')}</p>
         {overview.dataStatus.pendingCount > 0 ? (
           <p style={{ marginBottom: 0 }}>
             {t('pendingMigrations', { count: overview.dataStatus.pendingCount })}
@@ -428,7 +442,7 @@ function Initialized({
       {/* === 1. Libraries ================================================== */}
       <CollapsibleSection
         title={t('libraries')}
-        subtitle={t('libraryCount', { count: overview.libraries.length })}
+        subtitle={catalogReady ? t('libraryCount', { count: overview.libraries.length }) : '—'}
         expanded={openLibraries}
         onToggle={() => setOpenLibraries((v) => !v)}
         headerActions={
@@ -459,7 +473,7 @@ function Initialized({
       {/* === 2. Entry Packages =========================================== */}
       <CollapsibleSection
         title={t('entries')}
-        subtitle={t('entryPackageCount', { count: overview.entryPackages.length })}
+        subtitle={catalogReady ? t('entryPackageCount', { count: overview.entryPackages.length }) : '—'}
         expanded={openEntries}
         onToggle={() => setOpenEntries((v) => !v)}
         headerActions={<>
@@ -480,10 +494,16 @@ function Initialized({
       {/* === 3. Relationships ============================================ */}
       <CollapsibleSection
         title={t('relationships')}
-        subtitle={t('edgeCount', { count: overview.relationships.length })}
+        subtitle={overview.relationshipCount == null ? '—' : t('edgeCount', { count: overview.relationshipCount })}
         expanded={openRelationships}
-        onToggle={() => setOpenRelationships((v) => !v)}
+        onToggle={() => {
+          if (!openRelationships) api?.postMessage({ type: 'loadDashboardRelationships' });
+          setOpenRelationships(v => !v);
+        }}
       >
+        {relationshipsStatus.status !== 'ready' ? <p role={relationshipsStatus.status === 'error' ? 'alert' : 'status'}>
+          {relationshipsStatus.status === 'error' ? t('relationshipsError', { message: relationshipsStatus.message ?? '' }) : relationshipsStatus.status === 'idle' ? t('relationshipsUnavailable') : t('relationshipsPending')}
+        </p> : null}
         {overview.relationships.length > 0 ? (
           <RelationshipsTable
             relationships={overview.relationships}
@@ -513,7 +533,7 @@ function Initialized({
       {/* === 4. SNL Macros ================================================ */}
       <CollapsibleSection
         title={t('macros')}
-        subtitle={t('packageCount', { count: overview.macroPackages.length })}
+        subtitle={catalogReady ? t('packageCount', { count: overview.macroPackages.length }) : '—'}
         expanded={openMacros}
         onToggle={() => setOpenMacros((v) => !v)}
         headerActions={
@@ -558,7 +578,7 @@ function Initialized({
       {/* === 4. Entry Kinds =============================================== */}
       <CollapsibleSection
         title={t('entryKinds')}
-        subtitle={t('kindCount', { count: overview.entryKinds.length })}
+        subtitle={catalogReady ? t('kindCount', { count: overview.entryKinds.length }) : '—'}
         expanded={openEntryKinds}
         onToggle={() => setOpenEntryKinds((v) => !v)}
       >
@@ -590,7 +610,7 @@ function Initialized({
       {/* === 5. Macro Kinds =============================================== */}
       <CollapsibleSection
         title={t('macroKinds')}
-        subtitle={t('kindCount', { count: overview.macroKinds.length })}
+        subtitle={catalogReady ? t('kindCount', { count: overview.macroKinds.length }) : '—'}
         expanded={openMacroKinds}
         onToggle={() => setOpenMacroKinds((v) => !v)}
       >
@@ -986,7 +1006,7 @@ function EntryPackagesTable({ packages, onOpen }: { packages: EntryPackageSummar
   return <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '0.5rem' }}>
     <thead><tr><th style={HEAD}>{t('colName')}</th><th style={HEAD}>{t('colId')}</th><th style={HEAD}>{t('colDescription')}</th><th style={HEAD}>{t('colEntries')}</th></tr></thead>
     <tbody>{packages.map((pkg) => <ClickableRow key={pkg.id} label={t('openEntryPackage', { id: pkg.id })} onActivate={() => onOpen(pkg.id)} primaryCellIndex={0}>
-      <td style={CELL}>{pkg.name || pkg.id}</td><td style={{ ...CELL, ...MONO }}>{pkg.id}</td><td style={CELL}>{pkg.description || '—'}</td><td style={CELL}>{pkg.entryCount}</td>
+      <td style={CELL}>{pkg.name || pkg.id}</td><td style={{ ...CELL, ...MONO }}>{pkg.id}</td><td style={CELL}>{pkg.description || '—'}</td><td style={CELL}>{pkg.entryCount ?? '—'}</td>
     </ClickableRow>)}</tbody>
   </table>;
 }

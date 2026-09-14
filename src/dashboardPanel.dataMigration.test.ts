@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   receive: undefined as ((message: unknown) => Promise<void>) | undefined,
@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
     hasSnlDoc: true, totalEntryCount: 0, entries: [], libraries: [], macroPackages: [],
     allMacros: [], metricMacroSources: {}, entryKinds: [], macroKinds: [], relationships: []
   })),
+  statistics: vi.fn(async (_root: unknown, _catalog: unknown, _signal: AbortSignal): Promise<unknown> => ({})),
+  relationships: vi.fn(async (_root: unknown, _signal: AbortSignal) => ({ relationships: [], entries: [] })),
   inspect: vi.fn(async () => ({
     status: 'current', currentVersion: '0.0.4', targetVersion: '0.0.4',
     pending: [], message: 'current'
@@ -58,6 +60,7 @@ vi.mock('./snlDoc', () => ({
   ENTRY_KIND_PRESETS: [{ id: 'entry-one', copyKeys: { label: 'fulcrumLabel', description: 'fulcrumDescription' }, kinds: [{ id: 'e' }] }],
   MACRO_KIND_PRESETS: [{ id: 'macro-one', copyKeys: { label: 'basicsLabel', description: 'basicsDescription' }, kinds: [{ id: 'm' }] }],
   readOverview: mocks.readOverview,
+  readDashboardCatalog: async () => ({ ...await mocks.readOverview(), dataStatus: { status: 'unchecked' } }),
   resolveActiveMacroPackages: vi.fn(async () => []),
   setActiveMacroPackages: vi.fn(async () => undefined)
 }));
@@ -65,6 +68,10 @@ vi.mock('./panelUtil', () => ({
   buildPanelHtml: () => '<html></html>',
   firstWorkspaceFolder: () => ({ path: '/ws', scheme: 'file', toString: () => 'file:/ws' }),
   webviewLocalResourceRoots: () => []
+}));
+vi.mock('./dashboardStatistics', () => ({
+  readDashboardStatistics: mocks.statistics,
+  readDashboardRelationships: mocks.relationships
 }));
 vi.mock('./entryMetricSettings', () => ({ readEntryMetricThresholds: () => ({}) }));
 vi.mock('./vscodeDataMigration', () => ({
@@ -78,10 +85,67 @@ vi.mock('./vscodeDataMigration', () => ({
 import { DashboardPanel } from './dashboardPanel';
 
 describe('Dashboard data migration host routing', () => {
+  afterEach(() => DashboardPanel.currentPanel?.dispose());
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.receive = undefined;
     DashboardPanel.currentPanel = undefined;
+  });
+
+  it('publishes the catalog without running full inspection on ready', async () => {
+    DashboardPanel.createOrShow({ path: '/ext' } as never);
+    await mocks.receive?.({ type: 'ready' });
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'overview' }));
+    expect(mocks.inspect).not.toHaveBeenCalled();
+  });
+
+  it('keeps navigation live and coalesces refreshes while aborting a blocked old scan', async () => {
+    let release!: (value: unknown) => void;
+    mocks.statistics.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    DashboardPanel.createOrShow({ path: '/ext' } as never);
+    await mocks.receive?.({ type: 'ready' });
+    await vi.waitFor(() => expect(mocks.statistics).toHaveBeenCalledTimes(1));
+    const signal = mocks.statistics.mock.calls[0][2];
+    await mocks.receive?.({ type: 'openInfoviewGraph' });
+    expect(mocks.executeCommand).toHaveBeenCalledWith('snlDoc.openInfoviewGraph');
+    await Promise.all(Array.from({ length: 12 }, () => mocks.receive?.({ type: 'nav.refresh' })));
+    expect(signal.aborted).toBe(true);
+    expect(mocks.statistics).toHaveBeenCalledTimes(1);
+    release({ stale: true });
+    await vi.waitFor(() => expect(mocks.statistics).toHaveBeenCalledTimes(2));
+    const ready = mocks.postMessage.mock.calls.map(([m]) => m as { type: string; status?: string; generation?: number; statistics?: unknown })
+      .filter(m => m.type === 'dashboardStatistics' && m.status === 'ready');
+    expect(ready).toEqual([expect.objectContaining({ generation: 13, statistics: {} })]);
+  });
+
+  it('does not load relationship rows until requested and deduplicates expansion', async () => {
+    DashboardPanel.createOrShow({ path: '/ext' } as never);
+    await mocks.receive?.({ type: 'ready' });
+    await vi.waitFor(() => expect(mocks.statistics).toHaveBeenCalledTimes(1));
+    expect(mocks.relationships).not.toHaveBeenCalled();
+    await Promise.all(Array.from({ length: 5 }, () => mocks.receive?.({ type: 'loadDashboardRelationships' })));
+    await vi.waitFor(() => expect(mocks.relationships).toHaveBeenCalledTimes(1));
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'dashboardRelationships', status: 'ready' }));
+  });
+
+  it('publishes only local statistics errors and suppresses post-disposal replies', async () => {
+    mocks.statistics.mockRejectedValueOnce(new Error('bad entry'));
+    DashboardPanel.createOrShow({ path: '/ext' } as never);
+    await mocks.receive?.({ type: 'ready' });
+    await vi.waitFor(() => expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'dashboardStatistics', status: 'error', message: 'bad entry'
+    })));
+    expect(mocks.showErrorMessage).not.toHaveBeenCalled();
+    let release!: (value: unknown) => void;
+    mocks.statistics.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    await mocks.receive?.({ type: 'nav.refresh' });
+    await vi.waitFor(() => expect(mocks.statistics).toHaveBeenCalledTimes(2));
+    DashboardPanel.currentPanel?.dispose();
+    const count = mocks.postMessage.mock.calls.length;
+    release({ disposed: true });
+    await new Promise(resolve => setTimeout(resolve, 5));
+    expect(mocks.statistics.mock.calls[1][2].aborted).toBe(true);
+    expect(mocks.postMessage).toHaveBeenCalledTimes(count);
   });
 
   it('routes Pointer maintenance to the global registered command', async () => {

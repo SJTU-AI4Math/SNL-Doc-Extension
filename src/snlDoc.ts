@@ -3637,6 +3637,63 @@ export async function readEntryPackages(
     .sort((left, right) => left.id.localeCompare(right.id));
 }
 
+export interface DashboardCatalog {
+  hasSnlDoc: boolean;
+  totalEntryCount: null;
+  entryPackages: Array<Omit<EntryPackageSummary, 'entryCount'> & { entryCount: null }>;
+  libraries: LibrarySummary[];
+  macroPackages: MacroPackageSummary[];
+  entryKinds: EntryKind[];
+  macroKinds: MacroKind[];
+  dataStatus: {
+    status: 'missing' | 'invalid' | 'future' | 'unchecked' | 'needsMigration';
+    currentVersion: string | null;
+    targetVersion: string;
+    pendingCount: number;
+    message: string;
+  };
+}
+
+/** Dashboard navigation catalog only. Manifest bytes include membership, but
+ * this does not read/validate any Entry, Macro, graph or migration receipt.
+ * A config version is NOT a checked-current topology or write authorization.
+ */
+export async function readDashboardCatalog(workspaceRoot: vscode.Uri): Promise<DashboardCatalog> {
+  const catalog: DashboardCatalog = {
+    hasSnlDoc: await exists(snlRootUri(workspaceRoot)), totalEntryCount: null,
+    entryPackages: [], libraries: [], macroPackages: [], entryKinds: [], macroKinds: [],
+    dataStatus: { status: 'missing', currentVersion: null, targetVersion: CURRENT_DATA_VERSION,
+      pendingCount: 0, message: '' }
+  };
+  if (!catalog.hasSnlDoc) return catalog;
+  try {
+    const raw = await readJson<unknown>(configUri(workspaceRoot));
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('config.json must be a JSON object.');
+    const config = normalizeConfig(raw);
+    catalog.entryKinds = config.entry_kinds ?? [];
+    catalog.macroKinds = config.macro_kinds ?? [];
+    const version = config.version;
+    catalog.dataStatus.currentVersion = typeof version === 'string' ? version : null;
+    const relation = typeof version === 'string' ? compareDataVersions(version, CURRENT_DATA_VERSION) : -1;
+    catalog.dataStatus.status = relation > 0 ? 'future' : relation < 0 ? 'needsMigration' : 'unchecked';
+    catalog.libraries = (await listLibraries(workspaceRoot)).map(({ slug, title }) => ({
+      slug, title, entryCount: null, relationshipCount: null
+    }));
+    if (relation !== 0) return catalog;
+    const records = await readPackageManifestRecords(entityReadStorage(workspaceRoot));
+    catalog.entryPackages = records.map(({ manifest }) => ({
+      id: manifest.id, name: manifest.name, description: manifest.description, entryCount: null
+    }));
+    const names = records.map(({ manifest }) => manifest.id).filter(id => id !== UNPACKAGED_PACKAGE_ID);
+    const active = new Set(resolveActiveFromConfig(names, config));
+    catalog.macroPackages = names.map(id => ({ file: `${id}.json`, macroCount: null, active: active.has(id) }));
+  } catch (error) {
+    catalog.dataStatus.status = 'invalid';
+    catalog.dataStatus.message = error instanceof Error ? error.message : String(error);
+  }
+  return catalog;
+}
+
 export interface SnlOverview {
   hasSnlDoc: boolean;
   totalEntryCount: number | null; // size of the shared entries.json pool
@@ -7339,10 +7396,11 @@ export async function readAuthoredRelationships(workspaceRoot: vscode.Uri): Prom
     if (code === 'ENOENT' || code === 'FileNotFound') return [];
     throw error;
   }
-  return parseAuthoredRelationships(await readJson<unknown>(uri));
+  return parseRelationships(await readJson<unknown>(uri));
 }
 
-function parseAuthoredRelationships(raw: unknown): RelationshipData[] {
+/** Shared authored-pool validation; parsing alone does not compose dependencies. */
+export function parseRelationships(raw: unknown): RelationshipData[] {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error('relationships.json must be an object wrapper.');
   }

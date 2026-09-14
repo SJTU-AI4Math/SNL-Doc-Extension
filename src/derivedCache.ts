@@ -52,7 +52,7 @@ function releaseMemoryState(root: CacheRoot, key: string): void {
 const epochs = new Map<string, number>();
 // Complete-input jobs own computation lifetime. File epochs only grant the
 // latest request publication authority; another input cannot cancel subscribers.
-interface CacheJob<T> { promise: Promise<T>; epoch: number; subscribers: number; settled: boolean; cancelled: boolean }
+interface CacheJob<T> { promise: Promise<T>; epoch: number; subscribers: number; settled: boolean; terminal: boolean; cancelled: boolean }
 const pending = new Map<string, CacheJob<unknown>>();
 const publications = new Map<string, Promise<unknown>>();
 const statuses = new Map<string, CacheStatus>();
@@ -256,46 +256,52 @@ export function getOrGenerateCache<T>(root: CacheRoot, request: CacheRequest<T>)
   const inputHash = cacheFingerprint(request.input);
   const key = `${file}\0${request.version}\0${inputHash}`;
   const existing = pending.get(key);
-  if (existing && !existing.cancelled) {
+  if (existing && !existing.cancelled && !existing.terminal) {
     // A-B-A reuses the still-subscribed A computation, not a duplicate job.
     if (existing.epoch !== epochs.get(file)) existing.epoch = nextEpoch(root, file);
     return subscribe(existing as CacheJob<T>, file, key, request.signal);
   }
   const epoch = nextEpoch(root, file);
   const job = Promise.resolve().then(async () => {
-    const cached = await readCache(root, request);
-    if (cacheFingerprint(request.input) !== inputHash) throw new Error('Cache input changed during lookup');
-    if (active.cancelled) throw abortError();
-    if (cached !== undefined) {
-      if (epochs.get(file) === active.epoch) statuses.set(file, 'ready');
-      return cached;
-    }
-    if (epochs.get(file) === active.epoch) statuses.set(file, 'generating');
-    const result = await request.generate();
-    if (cacheFingerprint(request.input) !== inputHash) throw new Error('Cache input changed during generation');
-    if (active.cancelled) throw abortError();
     try {
-      // Keep the computed result while a live A-B-A subscription renews this
-      // job's authority. publish captures a numeric token, so renewal during
-      // its I/O must continue with the latest token after the old attempt drains.
-      // Validation still runs even when this job no longer owns publication.
-      let publicationEpoch: number;
-      do {
-        publicationEpoch = active.epoch;
-        await publish(root, request, result, publicationEpoch);
-      } while (!active.cancelled && active.epoch !== publicationEpoch && epochs.get(file) === active.epoch);
-    } catch (error) {
-      // Disk persistence is optional. Validation, identity, missing-Library and
-      // cancellation failures are not storage degradation and must still reject.
-      const code = (error as NodeJS.ErrnoException).code;
-      if (!['EACCES', 'EPERM', 'EROFS', 'ENOSPC', 'EDQUOT', 'EMFILE', 'EIO'].includes(code ?? '')) throw error;
-      if (epochs.get(file) === active.epoch) statuses.set(file, 'failed');
+      const cached = await readCache(root, request);
+      if (cacheFingerprint(request.input) !== inputHash) throw new Error('Cache input changed during lookup');
+      if (active.cancelled) throw abortError();
+      if (cached !== undefined) {
+        if (epochs.get(file) === active.epoch) statuses.set(file, 'ready');
+        return cached;
+      }
+      if (epochs.get(file) === active.epoch) statuses.set(file, 'generating');
+      const result = await request.generate();
+      if (cacheFingerprint(request.input) !== inputHash) throw new Error('Cache input changed during generation');
+      if (active.cancelled) throw abortError();
+      try {
+        // Keep the computed result while a live A-B-A subscription renews this
+        // job's authority. publish captures a numeric token, so renewal during
+        // its I/O must continue with the latest token after the old attempt drains.
+        // Validation still runs even when this job no longer owns publication.
+        let publicationEpoch: number;
+        do {
+          publicationEpoch = active.epoch;
+          await publish(root, request, result, publicationEpoch);
+        } while (!active.cancelled && active.epoch !== publicationEpoch && epochs.get(file) === active.epoch);
+      } catch (error) {
+        // Disk persistence is optional. Validation, identity, missing-Library and
+        // cancellation failures are not storage degradation and must still reject.
+        const code = (error as NodeJS.ErrnoException).code;
+        if (!['EACCES', 'EPERM', 'EROFS', 'ENOSPC', 'EDQUOT', 'EMFILE', 'EIO'].includes(code ?? '')) throw error;
+        if (epochs.get(file) === active.epoch) statuses.set(file, 'failed');
+      }
+      if (active.cancelled) throw abortError();
+      // Return detached JSON, identical to a subsequent disk read.
+      return JSON.parse(JSON.stringify(result)) as T;
+    } finally {
+      // Inner completion precedes outer Promise adoption/finally. Never renew
+      // work after its last publication continuation (including hits/errors).
+      active.terminal = true;
     }
-    if (active.cancelled) throw abortError();
-    // Return detached JSON, identical to a subsequent disk read.
-    return JSON.parse(JSON.stringify(result)) as T;
   });
-  const active: CacheJob<T> = { promise: job, epoch, subscribers: 0, settled: false, cancelled: false };
+  const active: CacheJob<T> = { promise: job, epoch, subscribers: 0, settled: false, terminal: false, cancelled: false };
   pending.set(key, active);
   void job.catch(() => { if (epochs.get(file) === active.epoch) statuses.set(file, 'failed'); });
   void job.finally(() => { active.settled = true; if (pending.get(key) === active) pending.delete(key); releaseMemoryState(root, file); }).catch(() => undefined);

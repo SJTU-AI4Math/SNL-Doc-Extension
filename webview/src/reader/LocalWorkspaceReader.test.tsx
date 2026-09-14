@@ -66,7 +66,7 @@ beforeEach(() => {
   }));
   element = document.createElement('div'); document.body.append(element); root = createRoot(element);
 });
-afterEach(async () => { await act(async () => root.unmount()); element.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(async () => { await act(async () => root.unmount()); element.remove(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const mount = async () => { await act(async () => root.render(<LocalWorkspaceReader />)); };
 const resolve = async (index: number, value: unknown, ok = true) => { await act(async () => requests[index].response.resolve(reply(value, ok))); };
 const go = async (hash: string) => { await act(async () => { history.replaceState(null, '', hash); window.dispatchEvent(new PopStateEvent('popstate')); }); };
@@ -98,6 +98,9 @@ it('subscribes locally and folds the initial event/bursts into bounded catalog r
 
 it.each(['search', 'graph'] as const)('republishes the real %s model on automatic snapshot adoption without losing the route', async kind => {
   vi.useFakeTimers();
+  // Title rendering now requires a real-sized graph canvas. Geometry is the
+  // only additional browser seam; graph/model adoption remains production code.
+  if (kind === 'graph') vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 1000, 700));
   const hash = `#/${kind}?library=A&q=Shared&return=%23%2Fnode%2Fsame%3Flibrary%3DA`;
   await go(hash); await mount();
   const data = (title: string) => {
@@ -110,6 +113,11 @@ it.each(['search', 'graph'] as const)('republishes the real %s model on automati
   await resolve(0, workspace()); await resolve(1, data('Shared old title'));
   const visible = () => Array.from(element.querySelectorAll('main')).find(node => !node.closest('[hidden]'))!;
   const control = visible().querySelector('input[type="text"]');
+  if (kind === 'graph') {
+    const nodes = visible().querySelector<HTMLSelectElement>('select[aria-label="Nodes"]');
+    expect(nodes).not.toBeNull();
+    await act(async () => { nodes!.value = 'always-title'; nodes!.dispatchEvent(new Event('change', { bubbles: true })); });
+  }
   expect(visible().textContent?.replace(/\s/g, ' ')).toContain('Shared old title');
   await emit('change', { revision: 'r1' }); await tick();
   expect(visible().textContent?.replace(/\s/g, ' ')).toContain('Shared old title');

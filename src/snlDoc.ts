@@ -3022,7 +3022,8 @@ async function buildMacroPackageOperations(
   bare: string,
   next: MacroPackageFile,
   expectedRaw: unknown,
-  fallbackEnvelopes: ReadonlyMap<string, MacroEnvelope> = new Map()
+  fallbackEnvelopes: ReadonlyMap<string, MacroEnvelope> = new Map(),
+  committedRevisions?: Map<string, string>
 ): Promise<JsonFileOperation[]> {
   const current = await readMacroPackage(workspaceRoot, bare);
   if (current.status !== 'ok') throw new Error(`Macro package ${bare} disappeared.`);
@@ -3066,6 +3067,17 @@ async function buildMacroPackageOperations(
         expected: rewrite.expected
       });
     }
+    if (committedRevisions) {
+      // Use exactly the envelope selected for persistence (including no-op
+      // legacy records), through the same semantic normalizer as the reader.
+      const persisted = existing && !entityFileRewriteChanges(rewrite, existing.envelope)
+        ? existing.macro : rewrite.value.macro;
+      const normalized = buildMacroPackageResult(bare, {
+        version: next.version, name: next.name, macros: { [macroName]: persisted }
+      });
+      if (normalized.status !== 'ok') throw new Error(normalized.message);
+      committedRevisions.set(macroName, entityRevision(normalized.macros[0]));
+    }
     currentMacros.delete(macroName);
   }
   for (const record of currentMacros.values()) {
@@ -3099,20 +3111,24 @@ async function persistMacroPackage(
   bare: string,
   next: MacroPackageFile,
   expectedRaw: unknown
-): Promise<void> {
-  if (!(await usesEntityStorage(workspaceRoot))) {
-    await writeWorkspaceFile(
-      workspaceRoot,
-      macroPackageUri(workspaceRoot, bare),
-      jsonBytes(next),
-      expectedRaw
-    );
-    return;
-  }
-
-  await withExtensionWriterLock(workspaceRoot, `update Macro package ${bare}`, async () => {
-    const operations = await buildMacroPackageOperations(workspaceRoot, bare, next, expectedRaw);
-    await applyJsonFileOperations(workspaceRoot, `persist Macro package ${bare}`, operations);
+): Promise<ReadonlyMap<string, string>> {
+  return withExtensionWriterLock(workspaceRoot, `update Macro package ${bare}`, async () => {
+    const committedRevisions = new Map<string, string>();
+    if (!(await usesEntityStorage(workspaceRoot))) {
+      const bytes = jsonBytes(next);
+      const normalized = buildMacroPackageResult(bare, JSON.parse(DECODER.decode(bytes)));
+      if (normalized.status !== 'ok') throw new Error(normalized.message);
+      for (const macro of normalized.macros) committedRevisions.set(macro.name, entityRevision(macro));
+      await writeWorkspaceFile(workspaceRoot, macroPackageUri(workspaceRoot, bare), bytes, expectedRaw);
+    } else {
+      const operations = await buildMacroPackageOperations(
+        workspaceRoot, bare, next, expectedRaw, new Map(), committedRevisions
+      );
+      await applyJsonFileOperations(workspaceRoot, `persist Macro package ${bare}`, operations);
+    }
+    // Publish only after the selected writes succeed, before releasing the
+    // shared SNL writer lock. A later context read is never a commit receipt.
+    return committedRevisions;
   });
 }
 
@@ -3550,7 +3566,7 @@ export async function addMacro(
   file: string,
   macro: MacroPackageEntry
 ): Promise<
-  | { status: 'ok'; name: string }
+  | { status: 'ok'; name: string; committedRevision: string }
   | { status: 'noFile' }
   | { status: 'duplicate'; name: string }
   | { status: 'invalid'; reason: string }
@@ -3582,14 +3598,14 @@ export async function addMacro(
   };
 
   try {
-    await persistMacroPackage(workspaceRoot, stripJsonExt(file), next, read.raw);
+    const revisions = await persistMacroPackage(workspaceRoot, stripJsonExt(file), next, read.raw);
+    return { status: 'ok', name, committedRevision: revisions.get(name)! };
   } catch (err) {
     return {
       status: 'error',
       message: err instanceof Error ? err.message : String(err)
     };
   }
-  return { status: 'ok', name };
 }
 
 /** Dashboard snapshot data. Counts are best-effort: a missing/corrupt file
@@ -5444,7 +5460,7 @@ export async function updateMacroPackage(
 }
 
 export type UpdateMacroResult = UpdateResult<
-  { status: 'updated'; name: string }
+  { status: 'updated'; name: string; committedRevision: string }
 >;
 
 /**
@@ -5499,14 +5515,15 @@ export async function updateMacro(
   const next: MacroPackageFile = { ...read.pkg, macros: nextMacros };
 
   try {
-    await persistMacroPackage(workspaceRoot, stripJsonExt(file), next, read.raw);
+    const revisions = await persistMacroPackage(workspaceRoot, stripJsonExt(file), next, read.raw);
+    return { status: 'updated', name, committedRevision: revisions.get(name)! };
   } catch (err) {
     return {
       status: 'error',
       message: err instanceof Error ? err.message : String(err)
     };
   }
-  return { status: 'updated', name };
+
 }
 
 // ---------------------------------------------------------------------------

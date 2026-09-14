@@ -1012,8 +1012,8 @@ interface ContextMsg {
 type Incoming =
   | ContextMsg
   | { type: 'kindsRefresh'; macroKinds: MacroKind[] }
-  | { type: 'created'; name: string; requestId?: string }
-  | { type: 'updated'; name: string; requestId?: string }
+  | { type: 'created'; name: string; requestId?: string; committedRevision: string }
+  | { type: 'updated'; name: string; requestId?: string; committedRevision: string }
   | { type: 'duplicate'; name: string; message: string }
   | { type: 'notFound'; name: string; message: string }
   | { type: 'invalid'; reason: string }
@@ -1109,7 +1109,6 @@ export function CreateMacroApp(): React.ReactElement {
   const formDirtyRef = useRef(false);
   const editGenerationRef = useRef(0);
   const pendingSaveRef = useRef<{ requestId: string; key: string; name: string; mode: PanelMode; generation: number } | null>(null);
-  const acceptedSaveRef = useRef<{ requestId: string; key: string } | null>(null);
   const latestDraftRef = useRef<MacroEditorDraft | null>(null);
   const macroRevisionRef = useRef<string | undefined>(undefined);
   const editingNameRef = useRef('');
@@ -1427,11 +1426,6 @@ export function CreateMacroApp(): React.ReactElement {
             : `${msg.file}\u0000${msg.packageName}`;
           const nextDraftKey = editorDraftKey('macro', msg.mode, identity);
           const identityChanged = draftKeyRef.current !== nextDraftKey;
-          const accepted = acceptedSaveRef.current;
-          if (accepted && accepted.requestId === msg.savedRequestId && accepted.key === nextDraftKey) {
-            macroRevisionRef.current = msg.macroRevision;
-            acceptedSaveRef.current = null;
-          }
           draftKeyRef.current = nextDraftKey;
           setDraftKey(nextDraftKey);
 
@@ -1454,7 +1448,7 @@ export function CreateMacroApp(): React.ReactElement {
           if (msg.mode === 'edit' && msg.existing) {
             const sameDirtyDraft =
               formDirtyRef.current && editingNameRef.current === msg.existing.name;
-            if (!sameDirtyDraft || !macroRevisionRef.current) {
+            if (!sameDirtyDraft) {
               macroRevisionRef.current = msg.macroRevision;
             }
             if (!sameDirtyDraft) hydrateFromExisting(msg.existing, !identityChanged);
@@ -1498,7 +1492,8 @@ export function CreateMacroApp(): React.ReactElement {
         case 'updated': {
           const pending = pendingSaveRef.current;
           if (!pending || msg.requestId !== pending.requestId || pending.key !== draftKeyRef.current ||
-              msg.name !== pending.name || (msg.type === 'created') !== (pending.mode === 'create')) break;
+              msg.name !== pending.name || (msg.type === 'created') !== (pending.mode === 'create') ||
+              typeof msg.committedRevision !== 'string' || !msg.committedRevision) break;
           pendingSaveRef.current = null;
           const hasLaterEdits = editGenerationRef.current !== pending.generation;
           const nextKey = msg.type === 'created'
@@ -1509,17 +1504,18 @@ export function CreateMacroApp(): React.ReactElement {
           if (msg.type === 'created') {
             saveDraft(apiRef.current, pending.key, undefined);
             editingNameRef.current = msg.name;
-            macroRevisionRef.current = undefined;
             setName(msg.name);
             setPanelMode('edit');
             draftKeyRef.current = nextKey;
             setDraftKey(nextKey);
           }
+          // Only the matched successful write can advance a retained draft's
+          // CAS baseline. Context rereads may already describe an external R2.
+          macroRevisionRef.current = msg.committedRevision;
           formDirtyRef.current = hasLaterEdits;
           saveDraft(apiRef.current, nextKey, hasLaterEdits && latestDraftRef.current
             ? { ...latestDraftRef.current, name: msg.name, originalRevision: macroRevisionRef.current }
             : undefined);
-          acceptedSaveRef.current = { requestId: pending.requestId, key: nextKey };
           setStatus({ kind: msg.type, name: msg.name, at: Date.now() });
           break;
         }

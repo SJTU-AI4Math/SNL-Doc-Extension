@@ -91,7 +91,7 @@ describe('Create Macro panel flips to Edit after create', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create Macro' }));
     const request = (posted as { type: string; requestId?: string }[]).find(m => m.type === 'create')!;
     expect(request).toBeTruthy();
-    send({ type: 'created', name: 'foo', requestId: request.requestId });
+    send({ type: 'created', name: 'foo', requestId: request.requestId, committedRevision: 'committed-r1' });
     send(editContext());
 
     expect(screen.getByRole('heading', { level: 1 }).textContent)

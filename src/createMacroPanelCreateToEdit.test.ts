@@ -91,11 +91,11 @@ vi.mock('./snlDoc', () => ({
   entityRevision: () => 'test-revision',
   addMacro: async (_r: unknown, _f: string, macro: { name: string }) => {
     macros.push({ name: macro.name, styles: [] });
-    return { status: 'ok', name: macro.name };
+    return { status: 'ok', name: macro.name, committedRevision: 'committed-r1' };
   },
   updateMacro: async (_r: unknown, _f: string, macro: { name: string }) => ({
     status: 'updated',
-    name: macro.name
+    name: macro.name, committedRevision: 'committed-r1'
   }),
   readEntries: async () => [],
   readAllMacros: async () => ({ activeDependency: { name: 'activeDependency', tags: [], styles: [] } }),
@@ -219,7 +219,7 @@ describe('macro panel create -> edit flip', () => {
     configurationHandlers.at(-1)?.({ affectsConfiguration: (key) => key === 'snlDoc.locale' });
     expect(created[0].title).toBe('SNL Edit Macro — foo (algebra)');
 
-    expect(posted).toContainEqual(expect.objectContaining({ type: 'created', requestId: 'receipt-1' }));
+    expect(posted).toContainEqual(expect.objectContaining({ type: 'created', requestId: 'receipt-1', committedRevision: 'committed-r1' }));
     expect(contexts().at(-1)).toMatchObject({ savedRequestId: 'receipt-1' });
     const last = contexts().at(-1)!;
     expect(last.mode).toBe('edit');
@@ -236,7 +236,7 @@ describe('macro panel create -> edit flip', () => {
     CreateMacroPanel.editOrShow(extUri, 'receipt.json', 'fixed');
     await handlers[0]({ type: 'update', requestId: 'update-receipt', expectedRevision: 'original', macro: { name: 'injected', styles: [] } });
     const successIndex = posted.findIndex(m => (m as { type?: string }).type === 'updated');
-    expect(posted[successIndex]).toMatchObject({ name: 'fixed', requestId: 'update-receipt' });
+    expect(posted[successIndex]).toMatchObject({ name: 'fixed', requestId: 'update-receipt', committedRevision: 'committed-r1' });
     expect(posted[successIndex + 1]).toMatchObject({ type: 'context', savedRequestId: 'update-receipt', macroRevision: 'test-revision', existing: { name: 'fixed' } });
   });
 

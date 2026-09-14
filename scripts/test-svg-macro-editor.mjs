@@ -78,7 +78,7 @@ async function message(m) {
   if (m.type === 'create') {
     const result = cli(['macro', 'create'], { ...m.macro, package: packageId });
     entity = result.data.entity; id = entity.id; panelMode = 'edit';
-    const replies = [{ type: 'created', name: entity.value.name, requestId: m.requestId }, { ...context(), savedRequestId: m.requestId }];
+    const replies = [{ type: 'created', name: entity.value.name, requestId: m.requestId, committedRevision: entity.revision }, { ...context(), savedRequestId: m.requestId }];
     if (holdNextMacro) { holdNextMacro = false; await new Promise(done => { releaseMacro = done; }); }
     return replies;
   }
@@ -86,7 +86,7 @@ async function message(m) {
     const result = cli(['macro', 'update', id, '--if-match', m.expectedRevision], { ...m.macro, package: packageId }, false);
     if (!result.ok) return { type: 'error', message: 'CAS conflict' };
     entity = result.data.entity;
-    const replies = [{ type: 'updated', name: entity.value.name, requestId: m.requestId }, { ...context(), savedRequestId: m.requestId }];
+    const replies = [{ type: 'updated', name: entity.value.name, requestId: m.requestId, committedRevision: entity.revision }, { ...context(), savedRequestId: m.requestId }];
     if (holdNextMacro) { holdNextMacro = false; await new Promise(done => { releaseMacro = done; }); }
     return replies;
   }

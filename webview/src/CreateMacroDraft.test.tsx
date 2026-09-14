@@ -174,10 +174,13 @@ describe('SVG-R1 Macro receipt ordering', () => {
     fireEvent.change(screen.getByPlaceholderText('Short human-readable description'), { target: { value: 'New description' } });
     expect(JSON.stringify(webviewState)).toContain('New label');
     const beforeWrongReceipt = JSON.stringify(webviewState);
-    send({ type: mode === 'edit' ? 'updated' : 'created', name: existing.name, requestId: 'wrong-request' });
+    send({ type: mode === 'edit' ? 'updated' : 'created', name: existing.name, requestId: 'wrong-request', committedRevision: 'wrong-revision' });
     expect(JSON.stringify(webviewState)).toBe(beforeWrongReceipt);
     send({ type: mode === 'edit' ? 'updated' : 'created', name: existing.name, requestId: request.requestId });
-    send({ ...context('edit', existing, 'r2'), savedRequestId: request.requestId });
+    expect(JSON.stringify(webviewState)).toBe(beforeWrongReceipt); // No revision is not a commit receipt.
+    send({ type: mode === 'edit' ? 'updated' : 'created', name: existing.name, requestId: request.requestId, committedRevision: 'r2' });
+    expect(JSON.stringify(webviewState)).toContain('r2'); // terminal alone persists CAS
+    send({ ...context('edit', { ...existing, description: 'External R3' }, 'r3'), savedRequestId: request.requestId });
     const check = (): void => {
       expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toBe(newer);
       expect((screen.getByLabelText('Accessibility label') as HTMLInputElement).value).toBe('New label');
@@ -190,7 +193,7 @@ describe('SVG-R1 Macro receipt ordering', () => {
       expect((screen.getByRole('button', { name: 'Update Macro' }) as HTMLButtonElement).disabled).toBe(true);
     };
     check();
-    send({ type: mode === 'edit' ? 'updated' : 'created', name: existing.name, requestId: request.requestId });
+    send({ type: mode === 'edit' ? 'updated' : 'created', name: existing.name, requestId: request.requestId, committedRevision: 'replayed-revision' });
     check(); // A replay cannot clear the surviving generation.
     expect(Object.keys(webviewState as object).filter(key => key.includes('macro:create:'))).toEqual([]);
     view.unmount(); render(<CreateMacroApp />);

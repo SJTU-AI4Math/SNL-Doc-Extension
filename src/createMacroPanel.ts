@@ -463,7 +463,8 @@ export class CreateMacroPanel {
             void this.panel.webview.postMessage({
               type: 'updated',
               requestId,
-              name: result.name
+              name: result.name,
+              committedRevision: result.committedRevision
             });
             await this.pushContext(requestId);
             return;
@@ -510,7 +511,8 @@ export class CreateMacroPanel {
           void this.panel.webview.postMessage({
             type: 'created',
             requestId,
-            name: result.name
+            name: result.name,
+            committedRevision: result.committedRevision
           });
           // Cat 2026-07-27: flip this panel in place to EDIT mode for the
           // macro we just created — the natural next action is to keep

@@ -1,4 +1,25 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import * as fs from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// Authoring stays in the instrumented VS Code filesystem below. The new
+// Node-only cache layer uses real temporary storage, not a fake result or /ws.
+// Keep all Authoring read-count and concurrency assertions unchanged.
+let cacheRoot: string;
+beforeAll(async () => {
+  cacheRoot = await fs.mkdtemp(join(tmpdir(), 'snl-overview-cache-'));
+  await fs.mkdir(join(cacheRoot, '.SNL_Doc'));
+});
+afterAll(async () => { await fs.rm(cacheRoot, { recursive: true, force: true }); });
+vi.mock('./derivedCache', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./derivedCache')>();
+  return {
+    ...actual,
+    getOrGenerateCache: <T>(_root: string, request: import('./derivedCache').CacheRequest<T>) =>
+      actual.getOrGenerateCache(cacheRoot, request)
+  };
+});
 
 /**
  * Dashboard open cost. Cat 2026-07-25: "所有 Dashboard 相关的基本都慢,

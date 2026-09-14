@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { SnooglApp } from '../SnooglApp';
 import { SnlGraphApp } from '../SnlGraphApp';
+import { isGlobalPageRankView } from '../../../src/entryPageRankView';
+import { isCachedEntryMetrics } from '../../../src/cachedEntryMetrics';
+import { GraphLayoutMemoryCache } from '../../../src/graphLayoutCacheModel';
 import { BrowserMacroReader } from './BrowserMacroReader';
 import { frozenRelationshipGraph, frozenSearchResults } from './browserDiscovery';
 import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
@@ -65,11 +68,14 @@ export interface BrowserReaderHostContext {
 
 export function BrowserReader({ snapshot, hostContext }: { snapshot: FrozenReaderSnapshot; hostContext?: BrowserReaderHostContext }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
+  // Geometry is snapshot-owned while the mounted reader retains navigation state.
+  const graphLayoutMemory = useMemo(() => new GraphLayoutMemoryCache(), [snapshot]);
   const { route: currentRoute, session: searchSession } = useReaderLocation();
   const librarySlug = hostContext?.librarySlug ?? (currentRoute.kind === 'workspace' ? undefined : currentRoute.librarySlug);
   const route = readerRouteInLibrary(currentRoute, librarySlug);
   const routeHash = (destination: import('./readerRoute').ReaderRoute): string => encodeReaderRoute(readerRouteInLibrary(destination, librarySlug));
   const libraryHash = routeHash({ kind: 'library' });
+
   const contentLanguage = use_content_language();
   const frozenSourceUnavailable = use_localized({type:'i18n',default_language:'en',values:{en:'Source is not included in this frozen export.','zh-CN':'此冻结导出未包含源码。'}});
   const sourceUnavailable = hostContext?.sourceUnavailableReason ?? frozenSourceUnavailable;
@@ -167,7 +173,10 @@ export function BrowserReader({ snapshot, hostContext }: { snapshot: FrozenReade
     postMessage({ type: 'ready' });
   }, [snapshot, postMessage]);
   const selected = route.kind === 'entry' ? byId.get(route.entryId) : undefined;
+  const cachedEntryMetrics = isCachedEntryMetrics(snapshot.cachedEntryMetrics) ? snapshot.cachedEntryMetrics : undefined;
+  const globalPageRank = isGlobalPageRankView(snapshot.globalPageRank) ? snapshot.globalPageRank : null;
   const state: EntryReaderState | null = selected ? {
+    cachedEntryMetrics, globalPageRank,
     entry: selected, kind: kinds.get(selected.kind) ?? null, entries, entryPackages: snapshot.entryPackages,
     relationshipSections: groupEntryRelationships(selected.id, snapshot.relationships, byId),
     relatedEntries: snapshot.entries.filter(entry => entry.id !== selected.id).map(entry => details[entry.id]),
@@ -201,14 +210,14 @@ export function BrowserReader({ snapshot, hostContext }: { snapshot: FrozenReade
         kindPalette={kindPalette} localDetails={details} markdownImageUrlTransform={markdownImageUrlTransform}>
         <RoutePopoverBoundary visible={route.kind === 'library' || route.kind === 'node'} />
         <main style={READER_STYLE}>
-          <LibraryLayer {...snapshot.library} ctx={{ postMessage, goBack: hostContext?.onWorkspace ?? (() => navigate(libraryHash)), entryPool: entries,
+          <LibraryLayer {...snapshot.library} ctx={{ postMessage, goBack: hostContext?.onWorkspace ?? (() => navigate(libraryHash)), entryPool: entries, cachedEntryMetrics, globalPageRank,
             entryPackages: snapshot.entryPackages, userMacros, kindPalette, markdownImageUrlTransform, exportHtml: () => {}, outlineRef,
             activeNodeId: route.kind === 'node' ? route.nodeId : undefined }} />
         </main>
       </HoverPopoverProvider>
     </div>
     {route.kind === 'search' ? <SnooglApp key={searchSession} /> : null}
-    {route.kind === 'graph' ? <SnlGraphApp initialAtomicDependenciesOnly localDetails={details} markdownImageUrlTransform={markdownImageUrlTransform} /> : null}
+    {route.kind === 'graph' ? <SnlGraphApp layoutMemory={graphLayoutMemory} initialAtomicDependenciesOnly localDetails={details} markdownImageUrlTransform={markdownImageUrlTransform} /> : null}
     {route.kind === 'macro' ? Object.hasOwn(snapshot.macros, route.name)
       ? <BrowserMacroReader key={route.name} snapshot={snapshot} name={route.name} />
       : unavailable : null}

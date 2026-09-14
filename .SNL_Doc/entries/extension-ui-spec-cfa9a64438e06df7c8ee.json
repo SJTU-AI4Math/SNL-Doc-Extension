@@ -8,7 +8,8 @@
     "kind": "button",
     "title": "Regenerate Dependencies Button (List View)",
     "content": {
-      "snl": "ButtonDescription(%This rebuilds dependency relationships from macro sources.%,RunVSCodeCommand(snlDoc.regenerateDependencies))"
+      "snl": "ButtonDescription(%This rebuilds dependency relationships from macro sources.%,RunVSCodeCommand(snlDoc.regenerateDependencies))",
+      "markdown": "\n\n## 0.2.0-cache 后继合同\n\n此动作按 spec.cache.dependencies 重建本地自动依赖缓存，不改 Authoring relationship 字节；不会借此修改其他来源关系。\n"
     },
     "contribution_info": null,
     "pointer": null,

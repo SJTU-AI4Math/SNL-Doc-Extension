@@ -1,26 +1,43 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { CURRENT_DATA_VERSION } from './dataMigrationCore';
-import { buildPointerIndex, updatePointerIndexText, findNearestEntries, type PointerIndex } from './pointerSync';
-import { writePointerIndex } from './pointerSync/persistence';
+import { buildPointerIndex, updatePointerIndexText, findNearestEntries, stableStringify, type PointerIndex } from './pointerSync';
+import { readPointerIndex, writePointerIndex } from './pointerSync/persistence';
 import { readEntries } from './snlDoc';
 import { is_valid_i18n_string, resolve_localized_string } from './localizedContent';
 import { read_extension_preferences } from './preferences';
 import type { PointerHostDriver } from './pointerSyncHost';
 
-/** Only verified in-process snapshots are reused. A disk cache is never its own authority:
- * cold start and manual metadata discovery read canonical Entries before publishing. */
+/** Disk snapshots are candidates, never navigation authority. Cold starts reconcile
+ * canonical metadata first; buildPointerIndex then checks current source fingerprints. */
 export function createPointerHostDriver(): PointerHostDriver<PointerIndex> {
   let overlay: { base: PointerIndex; file: string; index: PointerIndex } | undefined;
   return {
     async build(root, previous) {
       const config = JSON.parse(await fs.readFile(path.join(root.fsPath, '.SNL_Doc/config.json'), 'utf8')) as { version?: unknown };
       if (config?.version !== CURRENT_DATA_VERSION) throw new Error('Pointer indexing requires the current SNL data format; run SNL data repair first.');
-      const entries = await readEntries(root, true);
-      return buildPointerIndex(root.fsPath, entries.map(entry => ({
+      const entries = (await readEntries(root, true)).map(entry => ({
         id: entry.id, package: entry.package,
         title: entry.title, pointer: entry.pointer,
-      })), previous);
+      }));
+      if (previous === undefined) {
+        const candidate = await readPointerIndex(root.fsPath);
+        if (candidate) {
+          // Admission is by complete current Entry/Pointer metadata, not just file
+          // or id. Source freshness is checked by the builder, once per file.
+          const identities = new Set(entries.map(entry => stableStringify(entry)));
+          previous = { version: 3, unfiled: [], files: Object.fromEntries(
+            Object.entries(candidate.files).map(([file, bucket]) => [file, {
+              fingerprint: bucket.fingerprint,
+              entries: bucket.entries.filter(({ entryId, package: pkg, title, pointer }) =>
+                identities.has(stableStringify({ id: entryId, package: pkg, title, pointer }))),
+            }])
+          ) };
+        }
+      }
+      // Never return/publish the candidate itself. Missing/changed metadata and
+      // sources go through normal path/shape checks and bounded regex resolution.
+      return buildPointerIndex(root.fsPath, entries, previous);
     },
     publish: (root, index) => writePointerIndex(root.fsPath, index),
     async query(_root, index, file, line, text, column) {

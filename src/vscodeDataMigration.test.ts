@@ -1,19 +1,42 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const mocks = vi.hoisted(() => ({
+  // /ws is only a stable fixture/counter label. URI path and fsPath both use
+  // the real per-test root, shared by instrumented Authoring I/O and Node cache.
+  tempRoot: '',
+  physicalPath: (path: string): string =>
+    path === '/ws' || path.startsWith('/ws/') ? mocks.tempRoot + path.slice(3) : path,
+  fixturePath: (path: string): string =>
+    path === mocks.tempRoot || path.startsWith(`${mocks.tempRoot}/`)
+      ? '/ws' + path.slice(mocks.tempRoot.length) : path,
+  // Bookkeeping only: reads below always consult disk, never this map.
   files: new Map<string, Uint8Array>(),
-  directories: new Set<string>(),
   readFiles: new Map<string, number>(),
   readDirectories: new Map<string, number>(),
   rename: vi.fn(),
   writeGate: null as Promise<void> | null
 }));
 
-vi.mock('vscode', () => {
+vi.mock('vscode', async () => {
+  const fs = await import('node:fs/promises');
+  const { posix } = await import('node:path');
+  const { pathToFileURL } = await import('node:url');
   class Uri {
-    constructor(public readonly path: string, public readonly scheme = 'file') {}
+    readonly path: string;
+    constructor(path: string, public readonly scheme = 'file') {
+      this.path = mocks.physicalPath(path);
+    }
+    get fsPath(): string { return this.path; }
+    toString(): string {
+      return this.scheme === 'file'
+        ? pathToFileURL(this.path).toString()
+        : `${this.scheme}://${encodeURI(this.path)}`;
+    }
     static joinPath(base: Uri, ...parts: string[]): Uri {
-      return new Uri([base.path.replace(/\/$/, ''), ...parts].join('/'), base.scheme);
+      return new Uri(posix.join(base.path, ...parts), base.scheme);
     }
     static file(path: string): Uri { return new Uri(path, 'file'); }
     static from(value: { path: string; scheme: string }): Uri {
@@ -21,44 +44,45 @@ vi.mock('vscode', () => {
     }
     with(change: { path?: string }): Uri { return new Uri(change.path ?? this.path, this.scheme); }
   }
-  const missing = (): never => { throw new Error('ENOENT'); };
   return {
     Uri,
     FileType: { File: 1, Directory: 2 },
     workspace: {
       fs: {
         stat: async (uri: Uri) => {
-          if (mocks.files.has(uri.path)) return { type: 1 };
-          if (mocks.directories.has(uri.path)) return { type: 2 };
-          return missing();
+          const stat = await fs.stat(uri.fsPath);
+          return { type: stat.isDirectory() ? 2 : 1, ctime: stat.ctimeMs, mtime: stat.mtimeMs, size: stat.size };
         },
         readFile: async (uri: Uri) => {
-          mocks.readFiles.set(uri.path, (mocks.readFiles.get(uri.path) ?? 0) + 1);
-          return mocks.files.get(uri.path) ?? missing();
+          const path = mocks.fixturePath(uri.path);
+          mocks.readFiles.set(path, (mocks.readFiles.get(path) ?? 0) + 1);
+          return fs.readFile(uri.fsPath);
         },
         readDirectory: async (uri: Uri) => {
-          mocks.readDirectories.set(
-            uri.path,
-            (mocks.readDirectories.get(uri.path) ?? 0) + 1
-          );
-          if (!mocks.directories.has(uri.path)) return missing();
-          const prefix = `${uri.path}/`;
-          return [...mocks.files.keys()]
-            .filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes('/'))
-            .map((path) => [path.slice(prefix.length), 1]);
+          const path = mocks.fixturePath(uri.path);
+          mocks.readDirectories.set(path, (mocks.readDirectories.get(path) ?? 0) + 1);
+          const entries = await fs.readdir(uri.fsPath, { withFileTypes: true });
+          return entries.map((entry) => [entry.name, entry.isDirectory() ? 2 : 1]);
         },
         writeFile: async (uri: Uri, bytes: Uint8Array) => {
           if (mocks.writeGate) await mocks.writeGate;
-          mocks.files.set(uri.path, bytes);
+          await fs.writeFile(uri.fsPath, bytes);
+          mocks.files.set(mocks.fixturePath(uri.path), bytes);
         },
-        createDirectory: async (uri: Uri) => { mocks.directories.add(uri.path); },
+        createDirectory: async (uri: Uri) => { await fs.mkdir(uri.fsPath, { recursive: true }); },
         rename: async (from: Uri, to: Uri) => {
-          mocks.rename(from.path, to.path);
-          const bytes = mocks.files.get(from.path) ?? missing();
-          mocks.files.set(to.path, bytes);
-          mocks.files.delete(from.path);
+          const fromPath = mocks.fixturePath(from.path);
+          const toPath = mocks.fixturePath(to.path);
+          mocks.rename(fromPath, toPath);
+          await fs.rename(from.fsPath, to.fsPath);
+          const bytes = mocks.files.get(fromPath);
+          if (bytes) mocks.files.set(toPath, bytes);
+          mocks.files.delete(fromPath);
         },
-        delete: async (uri: Uri) => { mocks.files.delete(uri.path); }
+        delete: async (uri: Uri) => {
+          await fs.unlink(uri.fsPath);
+          mocks.files.delete(mocks.fixturePath(uri.path));
+        }
       }
     }
   };
@@ -91,22 +115,30 @@ import {
 } from './entityStorage';
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
-const put = (path: string, value: unknown): void => {
-  mocks.files.set(path, encoder.encode(`${JSON.stringify(value, null, 2)}\n`));
+const makeDirectory = (path: string): void => {
+  mkdirSync(mocks.physicalPath(path), { recursive: true });
 };
-const get = (path: string): unknown => JSON.parse(decoder.decode(mocks.files.get(path)!));
+const put = (path: string, value: unknown): void => {
+  const bytes = encoder.encode(`${JSON.stringify(value, null, 2)}\n`);
+  writeFileSync(mocks.physicalPath(path), bytes);
+  mocks.files.set(path, bytes);
+};
+const get = (path: string): unknown => JSON.parse(readFileSync(mocks.physicalPath(path), 'utf8'));
 
 describe('VS Code workspace data migration adapter', () => {
   beforeEach(() => {
     mocks.files.clear();
-    mocks.directories.clear();
+    mocks.tempRoot = mkdtempSync(join(tmpdir(), 'snl-migration-test-'));
     mocks.readFiles.clear();
     mocks.readDirectories.clear();
     mocks.rename.mockClear();
     mocks.writeGate = null;
-    mocks.directories.add('/ws/.SNL_Doc');
-    mocks.directories.add('/ws/.SNL_Doc/term_macros');
+    makeDirectory('/ws/.SNL_Doc');
+    makeDirectory('/ws/.SNL_Doc/term_macros');
+  });
+
+  afterEach(() => {
+    rmSync(mocks.tempRoot, { recursive: true, force: true });
   });
 
   it('reads relative JSON files and atomically renames writes', async () => {
@@ -190,7 +222,7 @@ describe('VS Code workspace data migration adapter', () => {
 
   it('reads each current entity directory and file once for a Dashboard refresh', async () => {
     for (const directory of ['packages', 'entries', 'macros', 'libraries']) {
-      mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
+      makeDirectory(`/ws/.SNL_Doc/${directory}`);
     }
     put('/ws/.SNL_Doc/config.json', {
       version: '0.0.11',
@@ -239,7 +271,7 @@ describe('VS Code workspace data migration adapter', () => {
 
   it('rejects target-invalid flat Kind coloring on a 0.0.11 Dashboard read', async () => {
     for (const directory of ['packages', 'entries', 'macros', 'libraries']) {
-      mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
+      makeDirectory(`/ws/.SNL_Doc/${directory}`);
     }
     put('/ws/.SNL_Doc/config.json', {
       version: '0.0.11',
@@ -265,7 +297,7 @@ describe('VS Code workspace data migration adapter', () => {
 
   it('rejects a Dashboard overview when 0.0.11 Package membership omits a live Entry', async () => {
     for (const directory of ['packages', 'entries', 'macros', 'libraries']) {
-      mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
+      makeDirectory(`/ws/.SNL_Doc/${directory}`);
     }
     put('/ws/.SNL_Doc/config.json', {
       version: '0.0.11', entry_kinds: [], macro_kinds: [], active_macro_packages: ['Logic'],
@@ -296,7 +328,7 @@ describe('VS Code workspace data migration adapter', () => {
 
   it('keeps Dashboard migration inspection fail-closed for a partial entity topology', async () => {
     for (const directory of ['packages', 'macros', 'libraries']) {
-      mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
+      makeDirectory(`/ws/.SNL_Doc/${directory}`);
     }
     put('/ws/.SNL_Doc/config.json', {
       version: '0.0.11', entry_kinds: [], macro_kinds: [],
@@ -317,7 +349,7 @@ describe('VS Code workspace data migration adapter', () => {
 
   it('rejects a Dashboard refresh when a shared entity snapshot is malformed', async () => {
     for (const directory of ['packages', 'entries', 'macros', 'libraries']) {
-      mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
+      makeDirectory(`/ws/.SNL_Doc/${directory}`);
     }
     put('/ws/.SNL_Doc/config.json', {
       version: '0.0.11', entry_kinds: [], macro_kinds: [],

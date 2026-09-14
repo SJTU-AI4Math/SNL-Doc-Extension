@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.cache.layout",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "单 Library 图谱布局缓存",
+    "content": {
+      "markdown": "布局输出归单个Library，落盘 `.SNL_Doc/libraries/<slug>/.cache/graph-layout/`；不在全局cache目录为Library再造副本。复用当前布局算法，不顺便合并其他图谱增强分支或改变筛选/着色语义。\n\n缓存键绑定Library身份与相关节点/关系、影响尺寸的标题/语言及布局参数；复制/重命名或全局依赖变动后不得仅凭同一路径复用。生成输出包括节点几何、连线与相关布局结构，须运行时验证有限坐标/合法引用/一致范围；视口、hover、拖动过程、用户筛选选择本身不作为生成结果持久化。\n\n读取和发布走受控宿主接口；Webview不得提供任意cache路径，宿主必须绑定当前Library和当前输入generation。工作区全局图没有Library所有者时可用临时内存布局，不新增第六类持久cache。HTML只读图以冻结输入使用内存缓存，不写回工作区。\n\n验收真实图谱打开、热复用、布局参数/语言/数据失效、两个Library隔离、清空后等价重建、缓存写入不触发Authoring刷新循环及导出同版行为。"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

@@ -1,3 +1,5 @@
+import type { CachedEntryMetrics } from './cachedEntryMetrics';
+import type { GlobalPageRankView } from './entryPageRankView';
 import type { EntryData, EntryKind, MacroKind, MacroPackageEntry, RelationshipData } from './snlDoc';
 import { fromMarkdown, parseSnlSyntaxTree, type Localized } from './snlBasicsHostCompat';
 import { parseBlockRendererSpec } from './blockRendererSpec';
@@ -12,6 +14,9 @@ export interface FrozenOutlineNode {
 }
 export interface FrozenReaderSnapshot {
   version: 1;
+  /** Frozen global values, projected to this export's closure; absent in legacy HTML. */
+  cachedEntryMetrics?: CachedEntryMetrics;
+  globalPageRank?: GlobalPageRankView | null;
   renderSnapshotId: string;
   library: { slug: string; title: string; description?: string; outline: FrozenOutlineNode[]; warnings: string[] };
   entries: EntryData[];

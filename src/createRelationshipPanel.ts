@@ -11,6 +11,7 @@ const hostText = () => createHostTranslator(read_extension_preferences().languag
 import {
   addRelationship,
   entityRevision,
+  isAutomaticDependency,
   readEntries,
   readRelationships,
   updateRelationship,
@@ -142,7 +143,7 @@ export class CreateRelationshipPanel {
         existingIds = rels.map((r) => r.id);
         if (this.mode === 'edit') {
           existing = rels.find((r) => r.id === this.id) ?? null;
-          relationshipRevision = existing ? entityRevision(existing) : undefined;
+          relationshipRevision = existing && !isAutomaticDependency(existing) ? entityRevision(existing) : undefined;
         }
       } catch (error) {
         if (generation !== this.contextGeneration) return;
@@ -161,6 +162,7 @@ export class CreateRelationshipPanel {
       id: this.id || undefined,
       existing,
       relationshipRevision,
+      readOnly: existing ? isAutomaticDependency(existing) : false,
       entryPool,
       existingIds
     });

@@ -1,5 +1,9 @@
 import * as vscode from 'vscode';
 import { relationshipGraphEdge } from './relationshipGraphWire';
+import { getLibraryGraphLayout } from './graphLayoutCache';
+import { cacheRootForWorkspace } from './cacheRoot';
+import { graphLayoutInput, type GraphLayoutArtifact } from './graphLayoutCacheModel';
+import { resolve_localized_string } from './localizedContent';
 import { bind_preferences_panel_title } from './preferencesHost';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
@@ -402,8 +406,23 @@ export class GraphPanel {
     }
     if (generation !== this.graphGeneration) return;
 
+    // Persist only the Library's unfiltered projection. Interactive projections
+    // use the same pure algorithm in bounded Webview memory, never save filters.
+    let layoutCache: GraphLayoutArtifact | undefined;
+    if (this.scope.mode === 'library') {
+      const language = read_extension_preferences().language;
+      const input = graphLayoutInput(this.scope.slug, language, nodes.map(node => ({
+        id: node.id, packageId: node.packageId, kindId: node.kindId,
+        title: resolve_localized_string(node.title, language), kind: resolve_localized_string(node.kind, language),
+        color: '', background: ''
+      })), edges);
+      try { layoutCache = await getLibraryGraphLayout(cacheRootForWorkspace(root), input); }
+      catch { /* Derived cache failure cannot hide a valid authored graph. */ }
+      if (generation !== this.graphGeneration) return;
+    }
     void this.panel.webview.postMessage({
       type: 'graph',
+      layoutCache,
       scope: this.scope,
       title: displayTitle,
       nodes,
@@ -469,6 +488,7 @@ export class GraphPanel {
   }
 
   public dispose(): void {
+    ++this.graphGeneration;
     const key =
       this.scope.mode === 'pool' ? 'pool' : `library:${this.scope.slug}`;
     GraphPanel.instances.delete(key);

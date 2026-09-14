@@ -2687,6 +2687,55 @@
       "props": {
         "entryId": "concept.ui.panel"
       }
+    },
+    {
+      "id": "node.spec.cache",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.cache"
+      }
+    },
+    {
+      "id": "node.spec.cache.runtime",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.cache.runtime"
+      }
+    },
+    {
+      "id": "node.spec.cache.dependencies",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.cache.dependencies"
+      }
+    },
+    {
+      "id": "node.spec.cache.pagerank",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.cache.pagerank"
+      }
+    },
+    {
+      "id": "node.spec.cache.pointer",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.cache.pointer"
+      }
+    },
+    {
+      "id": "node.spec.cache.ssi",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.cache.ssi"
+      }
+    },
+    {
+      "id": "node.spec.cache.layout",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.cache.layout"
+      }
     }
   ],
   "relationships": [
@@ -4603,6 +4652,41 @@
     {
       "from": "node.spec.shared-reader.navigation",
       "to": "node.concept.ui.panel",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension",
+      "to": "node.spec.cache",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.cache",
+      "to": "node.spec.cache.runtime",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.cache",
+      "to": "node.spec.cache.dependencies",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.cache",
+      "to": "node.spec.cache.pagerank",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.cache",
+      "to": "node.spec.cache.pointer",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.cache",
+      "to": "node.spec.cache.ssi",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.cache",
+      "to": "node.spec.cache.layout",
       "label": "branch"
     }
   ]

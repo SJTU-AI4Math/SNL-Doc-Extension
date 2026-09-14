@@ -30,7 +30,7 @@ export interface PointerHostDriver<Index> {
 const MESSAGES = defineHostMessages({
   unsupported: 'Pointer navigation requires a file in the first SNL workspace folder. Other roots/providers are not supported yet.',
   maintenance: 'SNL Pointer maintenance',
-  progress: 'Resolving source pointers and rebuilding syncSNL.json…',
+  progress: 'Resolving source pointers and rebuilding Pointer inverse cache…',
   done: 'Pointer index: {pointers} pointers in {files} files; {unresolved} unresolved.',
   details: 'Show details',
   error: 'Pointer index is unavailable; retry Pointer maintenance. {error}',
@@ -40,7 +40,7 @@ const MESSAGES = defineHostMessages({
 }, {
   unsupported: 'Pointer 导航需要第一个 SNL 工作区中的代码文件；暂不支持其他根目录或文件提供者。',
   maintenance: 'SNL Pointer 维护',
-  progress: '正在解析源码指针并重建 syncSNL.json…',
+  progress: '正在解析源码指针并重建 Pointer 逆映射缓存…',
   done: 'Pointer 索引：{files} 个文件，{pointers} 条指针，{unresolved} 条未解析。',
   details: '查看详情',
   error: 'Pointer 索引不可用，请重新执行 Pointer 维护。{error}',

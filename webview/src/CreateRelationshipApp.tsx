@@ -14,6 +14,7 @@
 //   6. Metadata — raw JSON textarea (parsed on submit; empty → null)
 //   7. Submit + status banner
 
+import { parseRelationshipSource, type RelationshipSource } from '../../src/relationshipSelection';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
 import {
@@ -41,6 +42,8 @@ import { defineUiMessages, invariantText, useUiMessages } from './i18n/uiMessage
 const MESSAGES = defineUiMessages(
   'relationshipEditor',
   {
+    savedSource: 'Saved relationship record — may differ from the current graph.',
+    currentSource: 'Current relationship graph.',
     readOnly: 'Automatic dependency — derived from Macro sources (read-only).',
     created: 'Created relationship "{id}".', updated: 'Updated relationship "{id}".',
     endpoint: '{message} (endpoint: {endpoint})', invalid: 'Invalid: {reason}',
@@ -56,6 +59,8 @@ const MESSAGES = defineUiMessages(
     saving: 'Saving…', saveChanges: 'Save Changes'
   },
   {
+    savedSource: '已保存的关系记录，可能不同于当前关系图。',
+    currentSource: '当前关系图。',
     readOnly: '自动依赖关系 — 派生自 Macro 来源（只读）。',
     created: '已创建关系“{id}”。', updated: '已更新关系“{id}”。',
     endpoint: '{message}（端点：{endpoint}）', invalid: '无效：{reason}',
@@ -87,6 +92,7 @@ interface ContextMessage {
   existing?: RelationshipData | null;
   relationshipRevision?: string;
   readOnly?: boolean;
+  source?: RelationshipSource;
   targetState?: 'found' | 'notFound';
   entryPool: Array<{ id: string; title: Localized<string, string> }>;
   existingIds: string[];
@@ -175,6 +181,7 @@ export function CreateRelationshipApp(): React.ReactElement {
   const [metadata, setMetadata] = useState('');
   const [entryPool, setEntryPool] = useState<EntryOption[]>([]);
   const [existingIds, setExistingIds] = useState<string[]>([]);
+  const [source, setSource] = useState<RelationshipSource>('current');
   const [readOnly, setReadOnly] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -182,7 +189,7 @@ export function CreateRelationshipApp(): React.ReactElement {
   const [targetState, setTargetState] = useState<'found' | 'notFound'>('found');
 
   const draftKey = editorDraftKey(
-    'relationship',
+    source === 'saved' ? 'relationship.saved' : 'relationship',
     mode,
     mode === 'edit' ? targetId : ''
   );
@@ -231,6 +238,9 @@ export function CreateRelationshipApp(): React.ReactElement {
       const translate = tRef.current;
       switch (msg.type) {
         case 'context': {
+          const domain = parseRelationshipSource(msg.source);
+          if (!domain) return;
+          setSource(domain);
           setMode(msg.mode);
           setReadOnly(msg.readOnly === true);
           setTargetState(msg.mode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
@@ -423,6 +433,7 @@ export function CreateRelationshipApp(): React.ReactElement {
         }}
       />
 
+      {mode === 'edit' && <p role="status">{t(source === 'saved' ? 'savedSource' : 'currentSource')}</p>}
       {readOnly && <p role="status">{t('readOnly')}</p>}
       <fieldset disabled={readOnly} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <div style={ROW_STYLE}>

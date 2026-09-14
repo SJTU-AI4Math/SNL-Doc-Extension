@@ -21,6 +21,7 @@ import { readDashboardStatistics, readDashboardRelationships } from './dashboard
 import { CURRENT_DATA_VERSION } from './dataMigrationCore';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { extension_preferences_runtime } from './preferences';
+import { parseRelationshipSource } from './relationshipSelection';
 import { handleEditKindMessage } from './editKindMessage';
 
 const DASHBOARD_HOST_MESSAGES = defineHostMessages(
@@ -482,9 +483,11 @@ export class DashboardPanel {
         await vscode.commands.executeCommand('snlDoc.createRelationship');
         return;
       case 'editRelationship': {
-        const id = (msg as { id?: unknown }).id;
-        if (typeof id === 'string' && id) {
-          await vscode.commands.executeCommand('snlDoc.editRelationship', id);
+        const { id, source } = msg as { id?: unknown; source?: unknown };
+        // Even older Dashboard webviews selected saved rows. Never reinterpret
+        // a missing source as current here (unlike legacy Graph callers).
+        if (typeof id === 'string' && id && (source === undefined || parseRelationshipSource(source) === 'saved')) {
+          await vscode.commands.executeCommand('snlDoc.editRelationship', id, 'saved');
         }
         return;
       }

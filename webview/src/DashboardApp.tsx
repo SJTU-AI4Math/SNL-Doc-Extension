@@ -510,7 +510,7 @@ function Initialized({
             relationships={overview.relationships}
             entries={overview.entries}
             onOpen={(id) =>
-              api?.postMessage({ type: 'editRelationship', id })
+              api?.postMessage({ type: 'editRelationship', id, source: 'saved' })
             }
             onDelete={(id) =>
               api?.postMessage({ type: 'deleteRelationship', id })
@@ -1018,6 +1018,13 @@ function EntryPackagesTable({ packages, onOpen }: { packages: EntryPackageSummar
  * titles when available; a missing endpoint (entry deleted after the
  * relationship was written) renders in error color as a hint.
  */
+// Presentation only: the Host determines read-only status again from real storage.
+function isSavedAutomaticRelationship(r: RelationshipData): boolean {
+  return r.label === 'depends' && !!r.metadata && typeof r.metadata === 'object'
+    && !Array.isArray(r.metadata)
+    && (r.metadata as { generator?: unknown }).generator === 'macro-source-scan';
+}
+
 function RelationshipsTable({
   relationships,
   entries,
@@ -1058,11 +1065,11 @@ function RelationshipsTable({
         {relationships.map((r) => (
           <ClickableRow
             key={r.id}
-            label={t('editRelationship', { id: r.id })}
+            label={t(isSavedAutomaticRelationship(r) ? 'viewSavedRelationship' : 'editRelationship', { id: r.id })}
             onActivate={() => onOpen(r.id)}
             primaryCellIndex={0}
           >
-            <td style={{ ...CELL, ...MONO }}>{r.id}</td>
+            <td style={{ ...CELL, ...MONO }}>{r.id}{isSavedAutomaticRelationship(r) && <div>{t('savedAutomaticReadOnly')}</div>}</td>
             <td style={CELL}>
               <EndpointCell id={r.from} title={titleById.get(r.from)} />
             </td>
@@ -1073,10 +1080,10 @@ function RelationshipsTable({
             <td style={{ ...CELL, ...MONO, opacity: 0.75 }}>
               {formatMetadataPreview(r.metadata, t('unserializable'))}
             </td>
-            <RowDeleteCell
+            {isSavedAutomaticRelationship(r) ? <td style={CELL} /> : <RowDeleteCell
               label={t('deleteRelationship', { id: r.id })}
               onDelete={() => onDelete(r.id)}
-            />
+            />}
           </ClickableRow>
         ))}
       </tbody>

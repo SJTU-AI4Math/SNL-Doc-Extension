@@ -69,8 +69,29 @@ describe('Dashboard incremental loading', () => {
       relationships: [{ id: 'r', from: 'a', to: 'b', label: 'implies', metadata: null }],
       entries: [{ id: 'a', title: 'Alpha' }, { id: 'b', title: 'Beta' }] });
     fireEvent.click(screen.getByRole('button', { name: 'Edit relationship r' }));
-    expect(postMessage).toHaveBeenCalledWith({ type: 'editRelationship', id: 'r' });
+    expect(postMessage).toHaveBeenCalledWith({ type: 'editRelationship', id: 'r', source: 'saved' });
     expect(screen.getByText('Alpha')).toBeTruthy();
+  });
+
+  it.each([
+    ['en', 'Relationships', 'View saved relationship legacy (read-only)', 'Saved automatic dependency (read-only)'],
+    ['zh-CN', '关系', '查看已保存关系 legacy（只读）', '已保存的自动依赖（只读）']
+  ])('opens saved automatic rows read-only without dead edit/delete actions in %s', (language, section, action, status) => {
+    document.documentElement.lang = language;
+    try {
+      render(<DashboardApp />);
+      const send = (data: unknown) => act(() => window.dispatchEvent(new MessageEvent('message', { data })));
+      send({ type: 'overview', generation: 1, overview: { hasSnlDoc: true } });
+      fireEvent.click(screen.getByText(section).closest('button')!);
+      send({ type: 'dashboardRelationships', generation: 1, status: 'ready', relationships: [
+        { id: 'legacy', from: 'B', to: 'A', label: 'depends', metadata: { generator: 'macro-source-scan', macros: ['old'] } }
+      ], entries: [] });
+      fireEvent.click(screen.getByRole('button', { name: action }));
+      expect(postMessage).toHaveBeenCalledWith({ type: 'editRelationship', id: 'legacy', source: 'saved' });
+      expect(screen.getByText(status)).toBeTruthy();
+      expect(screen.queryByRole('button', { name: /(?:Delete relationship|删除关系) legacy/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: /(?:Edit relationship|编辑关系) legacy/ })).toBeNull();
+    } finally { document.documentElement.lang = 'en'; }
   });
 
   it('shows missing-workspace feedback separately from an uninitialized folder', () => {

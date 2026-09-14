@@ -11,9 +11,9 @@ export async function verifyGraphColors({ evaluate, wait, screenshot, page, evid
     await evaluate(`(()=>{const s=document.querySelector('select[aria-label="${label}"]');if(!s)throw Error('missing select ${label}');s.value=${JSON.stringify(value)};s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
     await wait(`document.querySelector('select[aria-label="${label}"]').value===${JSON.stringify(value)}`);
   };
-  const fillExpr = id => `document.querySelector('[data-node-id="${id}"] > rect, [data-node-id="${id}"] > circle')?.getAttribute('fill')`;
+  const fillExpr = id => `window.__graphQA.read(document.querySelector('[data-node-id="${id}"]')).shape.getAttribute('fill')`;
   const expectFill = async (id,color) => wait(`${fillExpr(id)}===${JSON.stringify(color)}`);
-  const stable = () => evaluate(`(()=>{const vp=document.querySelector('[data-graph-viewport]');return {viewport:vp.getAttribute('transform'),nodes:[...document.querySelectorAll('[data-node-id]')].map(n=>{const s=n.querySelector(':scope > rect, :scope > circle'),b=s.getBBox(),m=vp.getCTM().inverse().multiply(s.getCTM());const p=new DOMPoint(b.x+b.width/2,b.y+b.height/2).matrixTransform(m);return [n.dataset.nodeId,p.x,p.y];})};})()`);
+  const stable = () => evaluate(`(()=>{const vp=document.querySelector('[data-graph-viewport]');return {viewport:vp.getAttribute('transform'),nodes:[...document.querySelectorAll('[data-node-id]')].map(n=>{const s=n.querySelector(':scope [data-node-paint] > rect, :scope [data-node-paint] > circle'),b=s.getBBox(),m=vp.getCTM().inverse().multiply(s.getCTM());const p=new DOMPoint(b.x+b.width/2,b.y+b.height/2).matrixTransform(m);return [n.dataset.nodeId,p.x,p.y];})};})()`);
   const rowButton = (i,name) => `[...${row(i)}.querySelectorAll('button')].find(n=>n.getAttribute('aria-label')===${JSON.stringify(name)} || n.textContent.trim()===${JSON.stringify(name)})`;
   const setColor = async (i,color) => evaluate(`(()=>{const n=${row(i)}.querySelector('input[type="color"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(n,${JSON.stringify(color)});n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   const add = async (tag,color) => {
@@ -52,12 +52,12 @@ export async function verifyGraphColors({ evaluate, wait, screenshot, page, evid
   await expectFill('Base','#4466cc'); await expectFill('Base2','#cc8844');
   await select('Nodes','auto');
   const zoomPoint=await evaluate(`(()=>{const r=document.getElementById('snl-graph-background').closest('svg').getBoundingClientRect();return {x:r.left+20,y:r.bottom-20};})()`);
-  for(let i=0;i<35 && !await evaluate(`Boolean(document.querySelector('[data-node-id="Goal"] > circle'))`);i++) {
+  for(let i=0;i<35 && !await evaluate(`Boolean(document.querySelector('[data-node-id="Goal"] [data-node-paint] > circle'))`);i++) {
     await page.call('Input.dispatchMouseEvent',{type:'mouseWheel',...zoomPoint,deltaX:0,deltaY:100});
     await evaluate(`new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`);
   }
   await expectFill('Goal','#c05050');
-  assert.equal(await evaluate(`document.querySelector('[data-node-id="Goal"] > circle')!==null`),true);
+  assert.equal(await evaluate(`document.querySelector('[data-node-id="Goal"] [data-node-paint] > circle')!==null`),true);
   await select('Nodes','always-title'); await expectFill('Goal','#c05050');
   await evaluate(`window.dispatchEvent(new MessageEvent('message',{data:window.__tagFixture}))`);
   await expectFill('Goal','#c05050');

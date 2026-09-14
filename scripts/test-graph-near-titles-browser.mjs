@@ -15,17 +15,18 @@ export async function verifyGraphNearTitles({ evaluate, wait, screenshot, page, 
     const width=sidebar?.width>0?Math.max(1,Math.min(r.width,sidebar.left-r.left)):r.width;
     const v=svg.querySelector(':scope > g[transform]').transform.baseVal.consolidate().matrix;
     const nodes=[...svg.querySelectorAll('[data-node-id]')].map(n=>{
-      const dot=n.querySelector(':scope > circle'),card=n.querySelector(':scope > rect'),m=n.transform.baseVal.consolidate().matrix;
+      const paint=window.__graphQA.read(n);
+      const dot=n.querySelector(':scope [data-node-paint] > circle'),card=n.querySelector(':scope [data-node-paint] > rect'),m=n.transform.baseVal.consolidate().matrix;
       const w=card?+card.getAttribute('width'):2*dot.cx.baseVal.value,h=card?+card.getAttribute('height'):2*dot.cy.baseVal.value;
       const x=m.e*v.a+v.e,y=m.f*v.d+v.f;
       const near=x+w*v.a>=-256&&x<=width+256&&y+h*v.d>=-256&&y<=r.height+256;
-      return {id:n.dataset.nodeId,world:[m.e,m.f,w,h],near,title:!!card,foreign:!!n.querySelector('foreignObject'),katex:n.querySelectorAll('.katex').length,radius:dot?.r.baseVal.value};
+      return {id:n.dataset.nodeId,world:[m.e,m.f,w,h],near,title:!!card,foreign:!!paint.text,katex:paint.text?.querySelectorAll('.katex').length||0,sourceForeign:!!paint.sourceText,sourceKatex:paint.sourceText?.querySelectorAll('.katex').length||0,radius:dot?.r.baseVal.value};
     }).sort((a,b)=>a.id.localeCompare(b.id));
     return {scale:v.a,vp:[v.e,v.f,v.a],width,height:r.height,nodes,titles:nodes.filter(n=>n.title).length,near:nodes.filter(n=>n.near).length,total:nodes.length};
   })()`);
   const centers = s => s.nodes.map(n => [n.id,...n.world]);
   const wheelTo = async target => {
-    const anchor = await evaluate(`(()=>{const n=document.querySelector('[data-node-id="Corpus0"]'),r=n.querySelector(':scope > circle,:scope > rect').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+    const anchor = await evaluate(`(()=>{const n=document.querySelector('[data-node-id="Corpus0"]'),r=n.querySelector(':scope [data-node-paint] > circle,:scope [data-node-paint] > rect').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
     let current = await scale(), maxMs=0;
     for(let i=0;i<100 && (current<target/1.1||current>target*1.1);i++) {
       const started=Date.now(), before=current;
@@ -41,8 +42,10 @@ export async function verifyGraphNearTitles({ evaluate, wait, screenshot, page, 
     assert.equal(s.total,count,`${label}: complete topology retained`);
     for(const n of s.nodes) {
       assert.equal(n.title,above&&n.near,`${label}: ${n.id} title must match viewport+buffer`);
-      assert.equal(n.foreign,n.title,`${label}: no hidden title subtree`);
+      assert.equal(n.foreign,n.title,`${label}: raised HTML exactly for titles`);
       assert.equal(n.katex>0,n.title,`${label}: no far KaTeX`);
+      assert.equal(n.sourceForeign,n.title,`${label}: hidden source only for near titles`);
+      assert.equal(n.sourceKatex>0,n.title,`${label}: no far source KaTeX`);
     }
     if(above){assert.ok(s.titles>0,`${label}: exercise actual near titles`);assert.ok(s.titles<count/4,`${label}: don't mount the full graph`);}
   };

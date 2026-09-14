@@ -9,7 +9,7 @@ export async function verifyCompactGraph({evaluate,wait,screenshot,page,evidence
   };
   const measure=()=>evaluate(`(()=>{
     const ns=[...document.querySelectorAll('svg g[role="button"][data-package-id]')];
-    const rects=ns.map(n=>n.querySelector(':scope > rect').getBoundingClientRect());
+    const rects=ns.map(n=>{const paint=window.__graphQA.read(n);if(!paint.use)throw Error('compact measurement requires title cards');return paint.screenRect;});
     const svg=document.getElementById('snl-graph-background').closest('svg').getBoundingClientRect();
     const labels=[...document.querySelectorAll('[data-package-label], g[role="group"][data-package-id] > text')];
     const bounds={left:Math.min(...rects.map(r=>r.left)),top:Math.min(...rects.map(r=>r.top)),right:Math.max(...rects.map(r=>r.right)),bottom:Math.max(...rects.map(r=>r.bottom))};
@@ -74,7 +74,7 @@ export async function verifyCompactGraph({evaluate,wait,screenshot,page,evidence
   evidence.compact.sidebar=await measure();
   await screenshot('compact-sidebar');
   if(!measureOnly){
-    const covered=await evaluate(`(()=>{const sidebar=document.querySelector('[data-testid="graph-filters"]').parentElement.getBoundingClientRect();return [...document.querySelectorAll('svg g[role="button"][data-package-id] > rect')].filter(n=>n.getBoundingClientRect().right>sidebar.left+0.5).length;})()`);
+    const covered=await evaluate(`(()=>{const sidebar=document.querySelector('[data-testid="graph-filters"]').parentElement.getBoundingClientRect();return [...document.querySelectorAll('svg g[role="button"][data-package-id]')].filter(n=>window.__graphQA.read(n).screenRect.right>sidebar.left+0.5).length;})()`);
     assert.equal(covered,0,'open settings cover fitted cards');
     await select('Layer packing','rings');
     await evaluate(`window.dispatchEvent(new MessageEvent('message',{data:window.__fixture}))`);

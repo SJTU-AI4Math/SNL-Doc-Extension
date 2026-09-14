@@ -1,3 +1,6 @@
+import { promises as fs } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -13,6 +16,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  *     Save button enabled.
  */
 
+const rootUri = { path: '/ws', fsPath: '/ws', scheme: 'file' };
 const created: Array<{ title: string; disposed: boolean }> = [];
 const posted: unknown[] = [];
 let revealCount = 0;
@@ -67,7 +71,7 @@ vi.mock('vscode', () => ({
       configurationHandlers.push(handler);
       return { dispose: () => undefined };
     },
-    workspaceFolders: [{ uri: { path: '/ws', fsPath: '/ws' } }],
+    workspaceFolders: [{ uri: rootUri }],
     getConfiguration: () => ({ get: () => undefined }),
     createFileSystemWatcher: () => {
       watcherCount += 1;
@@ -276,4 +280,30 @@ describe('macro panel create -> edit flip', () => {
     )).toBe(false);
     expect(macros).toHaveLength(1);
   });
+});
+
+it('routes the real SVG publication seam and leaves assets intact on invalid requests', async () => {
+  reset(); vi.resetModules();
+  const root = await fs.mkdtemp(join(tmpdir(), 'snl-panel-svg-'));
+  Object.assign(rootUri, { path: root, fsPath: root });
+  try {
+    await fs.mkdir(join(root, '.SNL_Doc'));
+    const { CreateMacroPanel } = await import('./createMacroPanel');
+    CreateMacroPanel.createOrShow(extUri, 'svg.json');
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g data-snl-slot="0"/></svg>';
+    const request = { type: 'svgMacro.writeAssets', requestId: 'panel-svg', slug: 'diagram', sourceSvg: svg, templateSvg: svg, accessibilityLabel: 'Diagram', operations: [] };
+    await handlers[0](request);
+    expect(posted.at(-1)).toMatchObject({ type: 'svgMacro.assetsWritten', requestId: 'panel-svg' });
+    const assets = join(root, '.SNL_Doc/assets/svg');
+    const files = await fs.readdir(assets);
+    const before = await Promise.all(files.map(name => fs.readFile(join(assets, name), 'utf8')));
+    await handlers[0]({ ...request, requestId: 'invalid', slug: '../escape' });
+    expect(posted.at(-1)).toMatchObject({ type: 'svgMacro.assetsError', requestId: 'invalid' });
+    expect(await fs.readdir(assets)).toEqual(files);
+    expect(await Promise.all(files.map(name => fs.readFile(join(assets, name), 'utf8')))).toEqual(before);
+    expect(macros).toEqual([]);
+  } finally {
+    Object.assign(rootUri, { path: '/ws', fsPath: '/ws' });
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });

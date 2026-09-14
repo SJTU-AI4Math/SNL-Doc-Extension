@@ -2,6 +2,14 @@ import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
+
+// Bundle the host XML boundary, including the lockfile-pinned build-time saxes
+// parser (provided by jsdom). Packaged host code must not require dev dependencies.
+await build({
+  absWorkingDir: root, entryPoints: ['src/svgTemplateHostValidation.ts'],
+  outfile: 'out/svgTemplateHostValidation.js', bundle: true,
+  platform: 'node', format: 'cjs', target: 'node20', logLevel: 'info'
+});
 const outfile = fileURLToPath(new URL('../out/snl-basics-host.cjs', import.meta.url));
 
 await build({

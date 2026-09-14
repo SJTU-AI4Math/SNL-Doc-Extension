@@ -116,6 +116,7 @@ import {
   serializeBlockRendererSpec,
   tableOptionsFromRendererParams
 } from './render/blockRendererSpec';
+import { SvgMacroEditor, type ExistingSvgProjection, type SvgEditorDraft } from './svg-editor/SvgMacroEditor';
 
 const CREATE_MACRO_MESSAGES = defineUiMessages(
   'createMacro',
@@ -228,6 +229,8 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     presetCenteredHint: 'Horizontally-centered block wrapper.',
     presetCollapsibleHint: 'Collapsible block — the first child is the always-visible summary; the rest fold behind a toggle.',
     presetImageHint: 'Image — path is relative to .SNL_Doc/assets.',
+    presetSvgHint: 'SVG template — import artwork, create slots, and save a verified workspace Asset.',
+    svgUnsaved: 'Save pending SVG artwork before saving the Macro.',
     numbering: 'Numbering',
     numberingDecimal: '123',
     numberingLowerAlpha: 'abc',
@@ -367,6 +370,8 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     presetCenteredHint: '水平居中的块包装器。',
     presetCollapsibleHint: '折叠块 — 第一个子节点始终显示为摘要，其余内容可通过开关折叠。',
     presetImageHint: '图片 — 路径相对于 .SNL_Doc/assets。',
+    presetSvgHint: 'SVG 模板 — 导入图稿、创建 slot，并保存为验证过的工作区 Asset。',
+    svgUnsaved: '请先保存尚未保存的 SVG 图稿，再保存宏。',
     numbering: '编号样式',
     numberingDecimal: '123',
     numberingLowerAlpha: 'abc',
@@ -519,6 +524,9 @@ interface TemplateProjectionDraft {
 
 /** Editable style identity plus a full localized Template projection map. */
 interface StyleDraft extends TemplateProjectionDraft {
+  /** Webview-session identity; never projected into the persisted Macro. */
+  editor_identity: string;
+  svg_editor_drafts?: Record<string, SvgEditorDraft>;
   extensions: Record<string, unknown>;
   style_name: string;
   template_localized: Localized<string, TemplateProjectionDraft>;
@@ -574,9 +582,12 @@ function newTemplateProjection(): TemplateProjectionDraft {
   };
 }
 
+let styleDraftIdentitySequence = 0;
+
 function newStyleDraft(styleName: string): StyleDraft {
   const projection = newTemplateProjection();
   return {
+    editor_identity: `style-draft-${styleDraftIdentitySequence += 1}`,
     extensions: {},
     style_name: styleName,
     ...projection,
@@ -591,7 +602,7 @@ function normalizeRestoredStyleDraft(input: unknown): StyleDraft {
     ? input as Record<string, unknown>
     : {};
   const base = newStyleDraft(typeof raw.style_name === 'string' ? raw.style_name : 'default');
-  const merged = { ...base, ...raw } as StyleDraft;
+  const merged = { ...base, ...raw, editor_identity: base.editor_identity } as StyleDraft;
   if (raw.template_localized !== undefined) {
     const source = raw.template_localized as Localized<string, TemplateProjectionDraft>;
     const language = typeof raw.template_edit_language === 'string'
@@ -1071,6 +1082,23 @@ function canonicalMacroKindCatalog(kinds: readonly MacroKind[]): MacroKind[] {
 // Component
 // ---------------------------------------------------------------------------
 
+export function styleUsesSvgRenderer(style: Pick<TemplateProjectionDraft, 'mode' | 'block_template_name'> | undefined): boolean {
+  if (!style || style.mode !== 'block') return false;
+  try {
+    return parseBlockRendererSpec(style.block_template_name).name === 'svg_template';
+  } catch {
+    return false;
+  }
+}
+
+export function styleHasAnySvgRenderer(style: StyleDraft): boolean {
+  if (styleUsesSvgRenderer(style)) return true;
+  if (is_i18n(style.template_localized)) {
+    return Object.values(style.template_localized.values).some((projection) => styleUsesSvgRenderer(projection));
+  }
+  return styleUsesSvgRenderer(style.template_localized);
+}
+
 export function CreateMacroApp(): React.ReactElement {
   const preferencesRevision = use_preferences_revision();
   const contentLanguage = webview_language_runtime.query_environment().language;
@@ -1134,6 +1162,9 @@ export function CreateMacroApp(): React.ReactElement {
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
 
   const current = styles[activeStyle] ?? styles[0];
+  const hasSvgRenderer = styles.some(styleHasAnySvgRenderer);
+  const hasUnsavedSvgDraft = styles.some((style) => styleHasAnySvgRenderer(style) &&
+    Object.values(style.svg_editor_drafts ?? {}).some((draft) => !draft.saved));
 
   function markFormDirty(): void {
     formDirtyRef.current = true;
@@ -1335,6 +1366,7 @@ export function CreateMacroApp(): React.ReactElement {
             is_i18n(template_localized) ? template_localized.default_language : 'en'
           );
           return {
+            editor_identity: newStyleDraft(style.style_name || 'default').editor_identity,
             extensions,
             style_name: style.style_name || 'default',
             ...projection,
@@ -1746,6 +1778,8 @@ export function CreateMacroApp(): React.ReactElement {
     !hasDupTag &&
     !hasInvalidTags &&
     !hasIncompleteImagePreset &&
+    !(hasSvgRenderer && dynamicArity) &&
+    !hasUnsavedSvgDraft &&
     !hasInvalidTemplateContract &&
     areEntityReferencesResolved(sourceEntries, entryPool) &&
     status.kind !== 'creating';
@@ -1936,10 +1970,32 @@ export function CreateMacroApp(): React.ReactElement {
       />
 
       {/* --- Content tabs --------------------------------------------------- */}
+      {hasUnsavedSvgDraft ? <p aria-live="polite">{t('svgUnsaved')}</p> : null}
+      {current?.mode === 'block' && current.block_template_name === 'svg_template' ? (
+        <SvgMacroEditor
+          key={`${draftKey}:${current.editor_identity}:${current.template_edit_language}`}
+          editorIdentity={`${draftKey}:${current.editor_identity}:${current.template_edit_language}`}
+          initialProjection={current.template_extensions.svg_template as ExistingSvgProjection | undefined}
+          initialDraft={current.svg_editor_drafts?.[current.template_edit_language]}
+          onDraftChange={(draft) => patchStyle({ svg_editor_drafts: { ...current.svg_editor_drafts, [current.template_edit_language]: draft } })}
+          onDirty={markFormDirty}
+          onTemplateChange={() => markFormDirty()}
+          onProjectionChange={(projection, requiredArity) => {
+            // Preserve authored argument ordering/bindings; only append missing positions.
+            const priorArity = maxMacroTemplateChildIndex(current.template) + 1;
+            const appended = Array.from({ length: Math.max(0, requiredArity - priorArity) }, (_, index) => `#${priorArity + index}`).join(' ');
+            const body = appended ? `${current.template} ${appended}`.trim() : current.template;
+            patchStyle({
+              template: body,
+              template_extensions: { ...current.template_extensions, svg_template: projection }
+            });
+          }} />
+      ) : null}
+
       <SectionHeader title={t('contentStyle', { style: current?.style_name || 'default' })} />
       {current ? (
         <LocalizedEditScope
-          resetKey={`${draftKey}:${activeStyle}`}
+          resetKey={`${draftKey}:${current.editor_identity}`}
           initialLanguage={current.template_edit_language}
           availableLanguages={[...new Set([
             LOCALIZED_GENERAL_LANGUAGE,
@@ -2119,6 +2175,7 @@ export function CreateMacroApp(): React.ReactElement {
           <input
             type="checkbox"
             checked={dynamicArity}
+            disabled={hasSvgRenderer && !dynamicArity}
             onChange={(e) => {
               const next = e.target.checked;
               markFormDirty();
@@ -3145,7 +3202,7 @@ function StylesEditor({
     <SectionHeader title={t('styles')} />
     <div role="group" aria-label={t('styles')}
       style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
-      {styles.map((style, index) => <div key={index}
+      {styles.map((style, index) => <div key={style.editor_identity}
         style={{ display: 'flex', alignItems: 'center', gap: '0.15rem' }}>
         <StyleSwitch
           tag={style.style_name}
@@ -3193,7 +3250,7 @@ function StylesEditor({
  */
 const BLOCK_RENDERER_PRESETS: ReadonlyArray<{
   key: string;
-  hintKey: 'presetListHint' | 'presetEnumerateHint' | 'presetTableHint' | 'presetCenteredHint' | 'presetCollapsibleHint' | 'presetImageHint';
+  hintKey: 'presetListHint' | 'presetEnumerateHint' | 'presetTableHint' | 'presetCenteredHint' | 'presetCollapsibleHint' | 'presetImageHint' | 'presetSvgHint';
 }> = [
   // Render preset keys are protocol tokens and remain language-invariant.
   { key: 'list', hintKey: 'presetListHint' },
@@ -3201,7 +3258,8 @@ const BLOCK_RENDERER_PRESETS: ReadonlyArray<{
   { key: 'table', hintKey: 'presetTableHint' },
   { key: 'centered', hintKey: 'presetCenteredHint' },
   { key: 'collapsible', hintKey: 'presetCollapsibleHint' },
-  { key: 'image', hintKey: 'presetImageHint' }
+  { key: 'image', hintKey: 'presetImageHint' },
+  { key: 'svg_template', hintKey: 'presetSvgHint' }
 ];
 const PRESET_KEYS = new Set(BLOCK_RENDERER_PRESETS.map((p) => p.key));
 

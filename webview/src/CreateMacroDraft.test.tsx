@@ -131,3 +131,43 @@ describe('Create Macro persisted drafts', () => {
     });
   });
 });
+
+
+describe('SVG Macro editor forward port', () => {
+  it('opens the production SVG editor without losing title, tags or slot body', () => {
+    render(<CreateMacroApp />);
+    const existing = { ...macro('Diagram.square', 'Keep title', '#0 #1'), tags: ['keep'], styles: [{ style_name: 'default', tags: ['style-tag'], template: { mode: 'block', body: '#0 #1', block_template_name: 'svg_template' } }] };
+    send(context('edit', existing, 'original-revision'));
+    expect(screen.getByRole('region', { name: 'SVG Macro editor' })).toBeTruthy();
+    expect((screen.getByPlaceholderText('Short human-readable description') as HTMLInputElement).value).toBe('Keep title');
+    fireEvent.click(screen.getByRole('button', { name: 'Update Macro' }));
+    expect(lastMutation()).toMatchObject({ expectedRevision: 'original-revision', macro: { tags: ['keep'], styles: [{ tags: ['style-tag'], template: { body: '#0 #1' } }] } });
+  });
+});
+
+
+describe('unsaved SVG drafts', () => {
+  it('retains SVG source and loaded artwork across refresh and full remount', () => {
+    const existing = { ...macro('Diagram.square', 'Keep title', '#0 #1'), styles: [{ style_name: 'default', tags: [], template: { mode: 'block', body: '#0 #1', block_template_name: 'svg_template' } }] };
+    const source = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g data-snl-slot="1"/></svg>';
+    const view = render(<CreateMacroApp />);
+    send(context('edit', existing, 'revision-original'));
+    fireEvent.change(screen.getByLabelText('SVG source'), { target: { value: source } });
+    fireEvent.click(screen.getByRole('button', { name: 'Load SVG preview' }));
+    fireEvent.change(screen.getByLabelText('Asset name'), { target: { value: 'draft-art' } });
+    fireEvent.change(screen.getByLabelText('Accessibility label'), { target: { value: 'My title' } });
+    send(context('edit', existing, 'revision-new'));
+    view.unmount();
+    render(<CreateMacroApp />);
+    send(context('edit', existing, 'revision-newer'));
+    expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toBe(source);
+    expect((screen.getByLabelText('Asset name') as HTMLInputElement).value).toBe('draft-art');
+    expect((screen.getByLabelText('Accessibility label') as HTMLInputElement).value).toBe('My title');
+    expect(screen.getByTestId('svg-macro-preview').querySelector('[data-snl-slot="1"]')).toBeTruthy();
+    const update = screen.getByRole('button', { name: 'Update Macro' }) as HTMLButtonElement;
+    expect(update.disabled).toBe(true);
+    fireEvent.click(update);
+    expect(lastMutation()).toBeUndefined();
+    expect(JSON.stringify(webviewState)).toContain('revision-original');
+  });
+});

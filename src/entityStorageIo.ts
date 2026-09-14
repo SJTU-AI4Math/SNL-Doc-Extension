@@ -500,6 +500,21 @@ export async function readMacroEntityRecord(
   if (value === null) return null;
   try {
     const record = validateMacroEntity(path, value, '11');
+    // The whole Host additionally runs normalizeCurrentMacros -> validateMacro.
+    // Its mode comparisons are strict; migration validation alone coerces mode
+    // with String(). Keep this read-only parity gate out of shared write domains.
+    for (const style of record.macro.styles as Array<{ template: Record<string, unknown> }>) {
+      const template = style.template;
+      const projections = template.type === 'i18n'
+        ? Object.values(template.values as Record<string, Record<string, unknown>>)
+        : [template];
+      for (const projection of projections) {
+        if (projection.mode !== 'formula_inline' && projection.mode !== 'formula_display' &&
+            projection.mode !== 'text' && projection.mode !== 'block') {
+          throw new Error(`${path} Macro template projection has an invalid mode.`);
+        }
+      }
+    }
     if (record.envelope.package !== packageId || record.macro.name !== name) {
       throw new Error(`${path} Macro identity does not match the requested identity.`);
     }

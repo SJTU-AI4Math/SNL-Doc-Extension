@@ -26,10 +26,14 @@ export interface LibraryRenderClosure {
 /** Current parser, not the legacy mdata.src or prefix scanner. Binder/env and
  * literal nodes retain the same lookup boundary as sharedReaderSnapshot. */
 export function collectLibraryRenderDependencies(snl: string): { entryIds: Set<string>; macroNames: Set<string> } {
+  return collectLibraryRenderTreeDependencies(snl ? parseSnlSyntaxTree(snl) : null);
+}
+/** Also accepts an actual resolved current AST; no parser or semantic resolver
+ * substitution is needed to test the canonical source branch. */
+export function collectLibraryRenderTreeDependencies(tree: ReturnType<typeof parseSnlSyntaxTree> | null): { entryIds: Set<string>; macroNames: Set<string> } {
   const entryIds = new Set<string>();
   const macroNames = new Set<string>();
-  if (!snl) return { entryIds, macroNames };
-  const nodes = [parseSnlSyntaxTree(snl)];
+  const nodes = tree ? [tree] : [];
   while (nodes.length) {
     const node = nodes.pop()!;
     if (node.source?.type === 'entry') entryIds.add(node.source.entry_id);
@@ -73,7 +77,18 @@ export async function readLibraryRenderClosure(seeds: readonly string[], reader:
       if (!found.record) { result.missingMacroNames.add(id); continue; }
       result.macros.set(id, found.record);
       const macro = found.record.macro as unknown as MacroPackageEntry;
-      macro.source.entries.forEach(addEntry);
+      // Valid current Macro sources are string arrays, not canonical Entry IDs.
+      // The frozen closure does exact Map.get(rawId): never trim into an owner,
+      // or dispatch an unlocatable source through the strict external point API.
+      for (const sourceId of macro.source.entries) {
+        if (!sourceId || sourceId !== sourceId.trim() || sourceId.includes('\0')) {
+          result.requestedEntryIds.add(sourceId);
+          result.missingEntryIds.add(sourceId);
+          result.entryResults.set(sourceId, { id: sourceId, packageId: null, path: null, record: null, missing: 'unindexed' });
+        } else {
+          addEntry(sourceId);
+        }
+      }
     }
   }
   reader.assertCurrent();

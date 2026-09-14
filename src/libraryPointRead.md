@@ -55,6 +55,20 @@ body generation guard; this foundation is not a transactional filesystem snapsho
   semantics still include bidirectional relation neighbors and their dependencies.
 - Editor read/watch integration. No storage/schema migration or write behavior.
 
+## Strict-read parity details
+
+- Single Macro reads retain canonical v11 validation and additionally enforce the
+  whole Host's strict mode comparisons across every Style and localized projection.
+  Shared migration validators and all write paths are unchanged.
+- Validated Macro source strings that cannot be canonical Entry IDs are exact
+  requested/missing identities with null physical paths. They do not enter the
+  strict external `readEntry` API, and are never trimmed into another identity.
+- The installed parser emits name/tree-path/binder-name postfix variants, not a
+  language variant: `x@en` is a name reference; `x[en]` selects a Style. Resolved
+  `source.type=entry` is produced by semantic resolution, not raw parsing. The
+  tree collector can inspect that actual resolved AST without adding a resolver
+  or a full-pool dependency to the disk closure.
+
 ## Verification
 
 Focused cases use temporary native files through the same strict provider seam,
@@ -62,7 +76,7 @@ plus explicit provider failures and controlled asynchronous gates. The full nati
 parser and unchanged frozen closure are differential references. Metadata directory
 reads are counted separately; Entry/Macro directory enumeration throws.
 
-After the repository's standard test-artifact preparation, run the three new test
+After the repository's standard test-artifact preparation, run the foundation and `libraryPointRead.parity.test.ts`
 files plus entityStorageIo/entityStorageSchemaIo/sharedReaderSnapshot tests with
 Vitest one worker. Host types use `tsc --noEmit`; tests (excluded by the host config)
 use `tsc --noEmit -p src/libraryPointRead.test-tsconfig.json`.

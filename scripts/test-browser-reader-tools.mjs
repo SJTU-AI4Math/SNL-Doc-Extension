@@ -262,6 +262,28 @@ try {
         await page.getByRole('button', { name: 'Hide', exact: true }).click();
         await page.getByRole('button', { name: 'Relationship graph', exact: true }).click();
       });
+      await step('graph-painted-outline-hit-and-navigation', async () => {
+        const beta = page.locator('[data-node-id="Beta"]');
+        await page.getByLabel('Nodes', { exact: true }).selectOption('always-title');
+        await page.mouse.move(5, 5);
+        await beta.focus();
+        await page.waitForFunction(() => getComputedStyle(document.querySelector('[data-node-id="Beta"] rect')).strokeWidth === '3.5px');
+        const witness = await beta.evaluate(group => {
+          const paint = group.querySelector('[data-node-paint] rect');
+          const hit = group.querySelector('[data-node-hit]');
+          const point = new DOMPoint(-1.25, paint.height.baseVal.value / 2).matrixTransform(group.getScreenCTM());
+          const target = document.elementFromPoint(point.x, point.y);
+          return { x: point.x, y: point.y, focused: document.activeElement === group,
+            paintStroke: getComputedStyle(paint).strokeWidth, hitStroke: getComputedStyle(hit).strokeWidth,
+            targetNode: target?.closest('[data-node-id]')?.getAttribute('data-node-id'), stableHit: target === hit };
+        });
+        writeFileSync(resolve(out, `${shape}-${protocol}-outline-hit.json`), JSON.stringify(witness, null, 2));
+        assert(witness.focused); assert.equal(witness.hitStroke, witness.paintStroke);
+        assert.equal(witness.targetNode, 'Beta'); assert(witness.stableHit);
+        await page.keyboard.down('Control'); await page.mouse.click(witness.x, witness.y); await page.keyboard.up('Control');
+        await page.waitForFunction(() => location.hash.startsWith('#/entry/Beta'));
+        await back(); await beta.waitFor();
+      });
       await step('theme-language-and-narrow', async () => {
         await page.getByRole('button', { name: 'Reading preferences', exact: true }).click();
         await page.getByLabel('Theme', { exact: true }).selectOption('dark');

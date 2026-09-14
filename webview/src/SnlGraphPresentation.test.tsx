@@ -38,6 +38,22 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); document.documentElement.lang = ''; });
 
 describe('adaptive graph presentation', () => {
+  it('matches the visible dot/card outline on the stable transparent hit path', () => {
+    render(<SnlGraphApp />); send();
+    const a = node(), hit = a.querySelector('[data-node-hit]')!;
+    const check = (width: string) => {
+      const paint = a.querySelector('[data-node-paint] rect, [data-node-paint] circle')!;
+      expect(a.querySelector('[data-node-hit]')).toBe(hit);
+      expect(hit.getAttribute('stroke')).toBe('transparent');
+      expect(hit.getAttribute('stroke-width')).toBe(width);
+      expect(paint.getAttribute('stroke-width')).toBe(width);
+    };
+    check('2');
+    fireEvent.click(a); check('3.5');
+    fireEvent.focus(a); check('3.5');
+    control('Nodes', 'always-title'); check('3.5');
+    fireEvent.blur(a); fireEvent.click(a); check('2');
+  });
   it('keeps native targets attached and ordered across hover, focus and dot/title transitions', () => {
     render(<SnlGraphApp />); send();
     const a = node(), parent = a.parentElement!;

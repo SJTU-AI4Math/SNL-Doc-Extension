@@ -1263,7 +1263,7 @@ function SnlGraphInner({
                     </g>
                     {/* One native hit child survives dot/card changes as well as
                         metadata-only hover. Paint never intercepts its events. */}
-                    <path data-node-hit="" d={hitPath} fill="transparent" pointerEvents="all" />
+                    <path data-node-hit="" d={hitPath} fill="transparent" stroke="transparent" strokeWidth={highlighted ? 3.5 : 2} pointerEvents="all" />
                   </g>
                 );
               })}

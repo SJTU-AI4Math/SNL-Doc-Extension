@@ -102,6 +102,24 @@ html,body { margin:0; padding:0; }
   .snl-panel-header__language-menu { left:auto; right:0; }
 }
 
+/* Host composition is opt-in: Extension panels retain their existing breakpoint layout. */
+.snl-panel-header--hosted { grid-template-columns:auto minmax(0,1fr) auto; }
+.snl-panel-header--hosted .snl-panel-header__identity { display:flex; align-items:center; gap:.5rem; grid-column:2; grid-row:1; overflow:hidden; }
+.snl-panel-header--hosted .snl-panel-header__title-row { flex:0 1 auto; }
+.snl-panel-header--hosted .snl-panel-header__subtitle { flex:0 1 auto; margin:0; }
+.snl-panel-header--hosted .snl-panel-header__actions { grid-column:3; grid-row:1; flex-wrap:nowrap; }
+.snl-panel-header__status { flex:none; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.75rem; color:var(--vscode-descriptionForeground,var(--vscode-foreground,#999)); }
+.snl-panel-header__overflow { position:relative; grid-column:3; grid-row:1; }
+.snl-panel-header__overflow-menu { gap:.4rem; min-width:0; width:min(20rem,calc(100vw - 4rem)); max-height:calc(100dvh - 5rem); overflow:auto; overflow-wrap:anywhere; box-sizing:border-box; }
+.snl-panel-header__overflow-menu > .snl-btn--icon,
+.snl-panel-header__overflow-menu > .snl-panel-header__language > button { display:flex; width:100%; gap:.5rem; align-items:center; justify-content:flex-start; white-space:normal; text-align:left; }
+.snl-panel-header__overflow-menu > .snl-btn--icon::after,
+.snl-panel-header__overflow-menu > .snl-panel-header__language > button::after { content:attr(aria-label); }
+.snl-panel-header__overflow-menu > .snl-panel-header__language { display:block; margin:0; }
+.snl-panel-header__overflow-menu .snl-panel-header__language-menu { position:static; min-width:0; max-width:100%; box-sizing:border-box; box-shadow:none; }
+.snl-panel-header--hosted[data-compact='true'] .snl-panel-header__watermark { display:none; }
+.snl-panel-header--hosted[data-compact='true'] .snl-panel-header__subtitle { display:none; }
+
 .snl-empty-action { width:100%; display:flex; justify-content:center; align-items:center; gap:.45rem; margin-top:.75rem; padding:.65rem; border:1px dashed var(--vscode-focusBorder,#007fd4); color:var(--vscode-textLink-foreground,#4a9eff); }
 .snl-empty-action--large { min-height:3rem; border-radius:6px; font-size:inherit; font-weight:600; }
 .snl-empty-action:hover:not(:disabled):not([aria-disabled='true']) { border-style:solid; border-color:var(--vscode-focusBorder,#007fd4); }

@@ -20,7 +20,8 @@ export type IconName =
   | 'copy'
   | 'edit'
   | 'book'
-  | 'search';
+  | 'search'
+  | 'graph';
 
 export function Icon({
   name,
@@ -71,5 +72,6 @@ const paths: Record<IconName, React.ReactNode> = {
   copy: <><rect x="5.5" y="5.5" width="7" height="7" rx="1" /><path d="M10.5 5.5v-2h-7v7h2" /></>,
   edit: <><path d="m3.5 12.5 2.7-.6 6-6-2.1-2.1-6 6-.6 2.7ZM9.5 4.5l2 2" /></>,
   book: <><path d="M2.5 3.5c2.1-.7 3.8-.4 5.5.8v8c-1.7-1.2-3.4-1.5-5.5-.8v-8ZM13.5 3.5c-2.1-.7-3.8-.4-5.5.8v8c1.7-1.2 3.4-1.5 5.5-.8v-8Z" /></>,
+  graph: <><circle cx="3" cy="8" r="2" /><circle cx="12" cy="3" r="2" /><circle cx="12" cy="13" r="2" /><path d="m5 7 5-3M5 9l5 3" /></>,
   search: <><circle cx="7" cy="7" r="4" /><path d="m10 10 3 3" /></>
 };

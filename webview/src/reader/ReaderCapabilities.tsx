@@ -1,7 +1,10 @@
 import React, { createContext, useContext } from 'react';
+import type { PanelHeaderHost } from '../components/PanelHeader';
 
 /** Platform capabilities. Shared components emit intents; adapters own I/O. */
 export interface ReaderCapabilities {
+  /** Explicitly forwarded by top-level readers, not automatically inherited by PanelHeader. */
+  panelHeader?: PanelHeaderHost;
   api?: { postMessage(message: unknown): void };
   edit: boolean;
   graph: boolean;

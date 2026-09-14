@@ -82,6 +82,12 @@ try {
         const data = await page.evaluate(() => ({ entries: window.__SNL_READER__.entries.map(e => e.id).sort(), edges: window.__SNL_READER__.relationships.length }));
         assert.deepEqual(data, { entries: ['Alpha', 'Beta', 'Delta', 'Gamma'], edges: 4 });
       });
+      await step('node-header-return', async () => {
+        await page.goto(url + '#/node/alpha-node');
+        await page.getByRole('button', { name: 'Back', exact: true }).click();
+        await page.waitForFunction(() => location.hash === '#/library');
+        assert.equal(await page.locator('.snl-panel-header:visible').count(), 1);
+      });
       await step('search-and-filter', async () => {
         await page.getByRole('button', { name: 'SNoogL', exact: true }).click();
         await page.getByRole('listbox').waitFor();

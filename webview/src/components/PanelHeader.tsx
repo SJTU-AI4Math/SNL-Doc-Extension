@@ -25,7 +25,18 @@ export interface PanelHeaderAction {
   onClick?: () => void;
 }
 
+/** Explicit top-level host additions; never implicitly consumed by nested previews. */
+export interface PanelHeaderHost {
+  back?: PanelHeaderAction;
+  actions?: React.ReactNode;
+  showRefresh: boolean;
+  status: LocalizedString;
+  statusTitle?: LocalizedString;
+}
+
 export interface PanelHeaderProps {
+  /** Browser host chrome, composed into this header rather than a second shell. */
+  host?: PanelHeaderHost;
   vsApi: VsCodeApi | undefined;
   /** The page title rendered inside the shared header. */
   title: LocalizedString;
@@ -57,12 +68,35 @@ export function PanelHeader({
   title,
   subtitle,
   titleAction,
-  back,
+  back: panelBack,
+  host,
   viewInInfoview,
   edit,
   actions,
-  showRefresh = true
+  showRefresh: panelShowRefresh = true
 }: PanelHeaderProps): React.ReactElement {
+  const back = host ? host.back : panelBack;
+  const showRefresh = host ? host.showRefresh : panelShowRefresh;
+  const status = use_localized(host?.status ?? '');
+  const statusTitle = use_localized(host?.statusTitle ?? host?.status ?? '');
+  const hostActionsLabel = use_localized({ type: 'i18n', default_language: 'en', values: { en: 'Panel actions', 'zh-CN': '面板操作' } });
+  const headerRef = React.useRef<HTMLElement>(null);
+  const [compact, setCompact] = React.useState(false);
+  // Opt-in only: preserve the Extension's existing layout and controls.
+  React.useLayoutEffect(() => {
+    if (!host) return;
+    let alive = true;
+    const measure = (): void => {
+      if (!alive) return;
+      const width = headerRef.current?.getBoundingClientRect().width ?? 0;
+      if (width > 0) setCompact(width < 880);
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
+    if (headerRef.current) observer?.observe(headerRef.current);
+    window.addEventListener('resize', measure);
+    return () => { alive = false; observer?.disconnect(); window.removeEventListener('resize', measure); };
+  }, [!!host]);
   const resolvedTitle = use_localized(title);
   const resolvedSubtitle = use_localized(subtitle ?? '');
   const backLabel = use_localized(back?.label ?? '');
@@ -116,7 +150,7 @@ export function PanelHeader({
   });
 
   return (
-    <nav className="snl-panel-header" aria-label={navigationLabel}>
+    <nav ref={headerRef} className={`snl-panel-header${host ? ' snl-panel-header--hosted' : ''}`} data-compact={host ? compact : undefined} aria-label={navigationLabel}>
       <div className="snl-panel-header__leading">
         {back ? (
           <IconButton
@@ -149,10 +183,12 @@ export function PanelHeader({
           <h1>{resolvedTitle}</h1>
           {titleAction}
         </div>
-        {resolvedSubtitle ? <div className="snl-panel-header__subtitle">{resolvedSubtitle}</div> : null}
+        {resolvedSubtitle ? <div className="snl-panel-header__subtitle" title={resolvedSubtitle}>{resolvedSubtitle}</div> : null}
+        {status ? <span className="snl-panel-header__status" role="note" title={statusTitle}>{status}</span> : null}
       </div>
 
-      <div className="snl-panel-header__actions">
+      <HeaderActions compact={!!host && compact} label={hostActionsLabel}>
+        {host && compact ? <span role="note">{resolvedSubtitle ? `${resolvedSubtitle} · ` : ''}{statusTitle}</span> : null}
         {showRefresh ? (
           <IconButton
             icon="refresh"
@@ -190,6 +226,7 @@ export function PanelHeader({
           />
         ) : null}
         {actions}
+        {host?.actions}
         <ReaderPreferences api={vsApi} />
         <ContentLanguageSelector
           label={contentLanguageLabel}
@@ -203,9 +240,31 @@ export function PanelHeader({
           current={currentPreference}
           effectiveLanguage={effectiveLanguage}
         />
-      </div>
+      </HeaderActions>
     </nav>
   );
+}
+
+/** Reuses the header's existing menu surface; controls retain their native roles. */
+function HeaderActions({ compact, label, children }: { compact: boolean; label: string; children: React.ReactNode }): React.ReactElement {
+  const [open, setOpen] = React.useState(false);
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const outside = (event: MouseEvent): void => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', outside);
+    return () => document.removeEventListener('mousedown', outside);
+  }, [open]);
+  React.useEffect(() => { setOpen(false); }, [compact]);
+  if (!compact) return <div className="snl-panel-header__actions">{children}</div>;
+  return <div ref={rootRef} className="snl-panel-header__overflow" onKeyDown={event => {
+    if (event.key === 'Escape') { event.preventDefault(); setOpen(false); triggerRef.current?.focus(); }
+  }} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setOpen(false); }}>
+    <IconButton ref={triggerRef} icon="chevron-down" label={label} variant="secondary" size="md"
+      aria-expanded={open} onClick={() => setOpen(value => !value)} />
+    {open ? <div role="group" aria-label={label} className="snl-panel-header__language-menu snl-panel-header__overflow-menu">{children}</div> : null}
+  </div>;
 }
 
 type HeaderLanguagePreference = 'auto' | 'en' | 'zh-CN';

@@ -959,6 +959,7 @@ function SnlGraphInner({
       <main style={PANEL_STYLE}>
         <PanelHeader
           vsApi={apiRef.current}
+          host={capabilities.panelHeader}
           title={graphError?.title ?? t('title')}
           back={{
             label: t('infoview'),
@@ -1042,6 +1043,7 @@ function SnlGraphInner({
       >
         <PanelHeader
           vsApi={apiRef.current}
+          host={capabilities.panelHeader}
           title={edit ? msg.title : t('title')}
           subtitle={capabilities.scopeDescription ?? (edit ? undefined : t('frozenScope'))}
           back={{

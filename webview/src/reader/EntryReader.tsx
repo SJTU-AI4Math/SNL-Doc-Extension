@@ -88,6 +88,7 @@ export function EntryReader({state, loaded, loadError, wireUserMacros, userMacro
       <main style={{ ...PANEL_STYLE, position: 'relative' }}>
         <PanelHeader
           vsApi={{ postMessage }}
+          host={useReaderCapabilities().panelHeader}
           title={state
             ? resolve_localized_string(state.entry.title, contentLanguage) || t('title')
             : t('title')}

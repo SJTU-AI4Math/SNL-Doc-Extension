@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { FrozenReaderSnapshot } from '../../../src/sharedReaderSnapshot';
 import { BrowserReader } from './BrowserReader';
-import { Button } from '../components/Button';
+import { PanelHeader } from '../components/PanelHeader';
+import { createBrowserPreferences } from './browserPreferences';
+import { BUILT_IN_LANGUAGE_CATALOG } from '../../../src/languageCatalog';
 import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
 import { READER_STYLE } from './ReaderCapabilities';
 import { encodeReaderRoute } from './readerRoute';
@@ -15,16 +17,16 @@ export interface LocalReaderWorkspace {
   capabilities: { edit: false };
 }
 const MESSAGES = defineUiMessages('localWorkspaceReader', {
-  title: 'Local workspace', workspace: '← Workspace', refresh: 'Refresh', loading: 'Loading…',
+  title: 'Local workspace', workspace: 'Workspace', refresh: 'Refresh', loading: 'Loading…',
   scope: 'Scope: all entries, macros and relationships in this local workspace (read-only).',
-  readonly: 'Read-only folder data source', empty: 'No libraries in this workspace.',
+  readonly: 'Read-only', empty: 'No libraries in this workspace.',
   source: 'Source navigation is not connected to the local server yet.',
   unavailable: 'This destination is unavailable in this workspace.',
   missing: 'Not found in this workspace', graphEmpty: 'No relationships to display with the current filters.',
   failed: 'Could not read workspace data: {message}'
 }, {
-  title: '本地工作区', workspace: '← 工作区', refresh: '刷新', loading: '正在加载……',
-  scope: '范围：本地工作区的全部条目、宏和关系（只读）。', readonly: '只读文件夹数据源', empty: '此工作区暂无文档库。',
+  title: '本地工作区', workspace: '工作区', refresh: '刷新', loading: '正在加载……',
+  scope: '范围：本地工作区的全部条目、宏和关系（只读）。', readonly: '只读', empty: '此工作区暂无文档库。',
   source: '源码定位尚未接入本地服务。', unavailable: '此目的地在工作区中不可用。', missing: '工作区中未找到',
   graphEmpty: '当前筛选下无可显示的关系。', failed: '无法读取工作区数据：{message}'
 });
@@ -76,14 +78,9 @@ export function LocalWorkspaceReader(): React.ReactElement {
   const current = reading?.slug === librarySlug && reading?.refresh === refresh ? reading : undefined;
   const home = () => navigateReaderHash(encodeReaderRoute({ kind: 'workspace' }));
   return <>
-    <header style={{ ...READER_STYLE, paddingBottom: 0 }}>
-      <Button onClick={() => setRefresh(value => value + 1)}>{t('refresh')}</Button>
-      {librarySlug !== undefined && !current?.snapshot ? <Button onClick={home}>{t('workspace')}</Button> : null}
-      <p>{t('readonly')}</p>
-      {catalog.error ? <p role="alert">{t('failed', { message: catalog.error })}</p> : null}
-    </header>
     {librarySlug === undefined ? <main style={READER_STYLE}>
-      <h1>{catalog.value?.name ?? t('title')}</h1>
+      <WorkspaceHeader title={catalog.value?.name ?? t('title')} onRefresh={() => setRefresh(value => value + 1)} />
+      {catalog.error ? <p role="alert">{t('failed', { message: catalog.error })}</p> : null}
       {catalog.value ? <>
         <p><code>{catalog.value.root}</code></p>
         {catalog.value.libraries.length ? <ul>{catalog.value.libraries.map(library => <li key={library.slug}>
@@ -96,9 +93,27 @@ export function LocalWorkspaceReader(): React.ReactElement {
       {catalog.loading ? <p role="status">{t('loading')}</p> : null}
     </main> : current?.snapshot ? <BrowserReader key={`${librarySlug}:${current.generation}`} snapshot={current.snapshot} hostContext={{
       librarySlug, scope: t('scope'), sourceUnavailableReason: t('source'), unavailable: t('unavailable'),
-      missingEntry: t('missing'), graphEmpty: t('graphEmpty'), workspaceLabel: t('workspace'), onWorkspace: home
+      missingEntry: t('missing'), graphEmpty: t('graphEmpty'), workspaceLabel: t('workspace'), onWorkspace: home, onRefresh: () => setRefresh(value => value + 1)
     }} /> : <main style={READER_STYLE}>
+      <WorkspaceHeader title={catalog.value?.name ?? t('title')} onWorkspace={home} onRefresh={() => setRefresh(value => value + 1)} />
+      {catalog.error ? <p role="alert">{t('failed', { message: catalog.error })}</p> : null}
       {current?.error ? <p role="alert">{t('failed', { message: current.error })}</p> : <p role="status">{t('loading')}</p>}
     </main>}
+    {librarySlug !== undefined && current?.snapshot && catalog.error ? <p role="alert" style={{ padding: '0 1.5rem' }}>{t('failed', { message: catalog.error })}</p> : null}
   </>;
+}
+
+/** Only the browser I/O port differs; the actual header is the Extension component. */
+function WorkspaceHeader({ title, onWorkspace, onRefresh }: { title: string; onWorkspace?: () => void; onRefresh(): void }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
+  const [preferences] = useState(() => createBrowserPreferences({ language: document.documentElement.lang === 'zh-CN' ? 'zh-CN' : 'en', color_scheme: 'light', motion: 'reduced' }, 'local-workspace', BUILT_IN_LANGUAGE_CATALOG.map(language => ({ id: language.id, display_name: language.display_name }))));
+  useEffect(() => { preferences.load(); }, [preferences]);
+  const api = { postMessage(message: unknown): void {
+    if (!message || typeof message !== 'object') return;
+    const msg = message as Record<string, unknown>;
+    if (msg.type === 'nav.refresh') onRefresh();
+    else preferences.handle(msg);
+  } };
+  return <PanelHeader title={title} vsApi={api} host={{ showRefresh: true, status: t('readonly'), statusTitle: t('scope'),
+    back: onWorkspace ? { label: t('workspace'), onClick: onWorkspace } : undefined }} />;
 }

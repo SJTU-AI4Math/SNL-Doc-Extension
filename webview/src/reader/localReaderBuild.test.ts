@@ -56,8 +56,8 @@ it('builds an independent production browser and Node ESM model from the exact s
       observer.observe(dom!.window.document.body, { childList: true, subtree: true, characterData: true });
     });
     dom.window.eval(readFileSync(resolve(out, 'reader.js'), 'utf8'));
-    await waitFor(() => !!dom!.window.document.querySelector('a'));
-    dom.window.document.querySelector('a')!.click();
+    await waitFor(() => !!dom!.window.document.querySelector('a[href="#/library?library=L"]'));
+    dom.window.document.querySelector<HTMLAnchorElement>('a[href="#/library?library=L"]')!.click();
     await waitFor(() => dom!.window.document.body.textContent!.includes('Production model body'));
     expect(calls).toEqual(['/__snl/api/workspace', '/__snl/api/snapshot?library=L']);
     expect(dom.window.location.hash).toBe('#/library?library=L');

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PanelHeader } from './PanelHeader';
+import { IconButton } from './IconButton';
 import {
   apply_preferences_snapshot,
   get_content_language,
@@ -23,6 +24,31 @@ const back = {
 afterEach(cleanup);
 
 describe('PanelHeader', () => {
+  it('keeps host actions and both preference controls reachable through the narrow disclosure', async () => {
+    document.documentElement.lang = 'en';
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 320 } as DOMRect);
+    const postMessage = vi.fn();
+    const search = vi.fn();
+    try {
+      const view = render(<PanelHeader vsApi={{ postMessage }} title="Library" showRefresh={false}
+        host={{ showRefresh: true, status: 'Read-only', actions: <IconButton icon="search" label="SNoogL" onClick={search} /> }} />);
+      const toggle = await view.findByRole('button', { name: 'Panel actions' });
+      expect(view.queryByRole('button', { name: 'SNoogL' })).toBeNull();
+      fireEvent.click(toggle);
+      fireEvent.click(view.getByRole('button', { name: 'SNoogL' }));
+      expect(search).toHaveBeenCalledOnce();
+      fireEvent.click(view.getByRole('button', { name: /Refresh this panel/ }));
+      expect(postMessage).toHaveBeenCalledWith({ type: 'nav.refresh' });
+      expect(view.getByRole('button', { name: /Interface language/ })).toBeTruthy();
+      expect(view.getByRole('button', { name: /Content language/ })).toBeTruthy();
+      fireEvent.click(view.getByRole('button', { name: 'Reading preferences' }));
+      expect(view.getByRole('combobox', { name: 'Theme' })).toBeTruthy();
+      fireEvent.keyDown(view.getByRole('combobox', { name: 'Theme' }), { key: 'Escape' });
+      expect(view.queryByRole('button', { name: 'SNoogL' })).toBeNull();
+      expect(document.activeElement).toBe(toggle);
+    } finally { rect.mockRestore(); }
+  });
+
   it('re-renders localized UI text after a preference snapshot', async () => {
     document.documentElement.lang = 'en';
     const api = { postMessage: vi.fn() } as unknown as VsCodeApi;

@@ -32,6 +32,28 @@ const settle = async () => { await act(async () => { await new Promise(resolve =
 const input = async (node: HTMLInputElement, value: string) => { await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(node, value); node.dispatchEvent(new Event('input', { bubbles: true })); }); await settle(); };
 const visibleMain = () => Array.from(element.querySelectorAll('main')).find(node => !node.closest('[hidden]'))!;
 
+it('keeps frozen node-to-Library return in the unified header', async () => {
+  await mount('#/node/second');
+  await click(visibleMain().querySelector('button[aria-label="Back"]'));
+  expect(location.hash).toBe('#/library');
+  expect(visibleMain().querySelectorAll('.snl-panel-header')).toHaveLength(1);
+});
+
+it.each(['#/library', '#/node/second', '#/entry/Alpha', '#/entry/missing', '#/macro/symbol', '#/macro/missing', '#/search', '#/graph', '#/unavailable'])(
+  'keeps one shared top-level header and frozen scope without a live Refresh port on %s', async hash => {
+    await mount(hash);
+    const headers = Array.from(element.querySelectorAll('nav')).filter(node => !node.closest('[hidden]'));
+    expect(headers).toHaveLength(1);
+    const header = headers[0];
+    expect(header.classList.contains('snl-panel-header')).toBe(true);
+    expect(header.querySelectorAll('svg[data-snl-icon="search"]')).toHaveLength(1);
+    expect(header.querySelectorAll('svg[data-snl-icon="graph"]')).toHaveLength(1);
+    expect(header.querySelector('svg[data-snl-icon="refresh"]')).toBeNull();
+    expect(header.querySelector('[role="note"]')?.getAttribute('title')).toBe('Scope: this frozen export only.');
+    expect(header.querySelector('[aria-label="Workspace"]')).toBeNull();
+  }
+);
+
 it('keeps local library identity through search, query edits, Entry Back and occurrence return without frozen-export claims', async () => {
   history.replaceState(null, '', '#/node/second?library=L');
   await act(async () => root.render(<BrowserReader snapshot={snapshot} hostContext={{
@@ -41,7 +63,7 @@ it('keeps local library identity through search, query edits, Entry Back and occ
   }} />));
   expect(element.textContent).not.toContain('frozen export');
   expect(element.querySelector('[title*="frozen export"]')).toBeNull();
-  await click(Array.from(element.querySelectorAll('nav button')).find(b => b.textContent === 'SNoogL') ?? null);
+  await click(Array.from(element.querySelectorAll('nav button')).find(b => !b.closest('[hidden]') && b.getAttribute('aria-label') === 'SNoogL') ?? null);
   expect(new URLSearchParams(location.hash.split('?')[1]).get('library')).toBe('L');
   expect(visibleMain().textContent).toContain('Scope: local workspace.');
   await input(visibleMain().querySelector<HTMLInputElement>('input[type="text"]')!, 'Beta');
@@ -58,7 +80,7 @@ it('keeps local library identity through search, query edits, Entry Back and occ
   expect(new URLSearchParams(location.hash.split('?')[1]).get('library')).toBe('L');
   await click(visibleMain().querySelector('button'));
   expect(location.hash).toBe('#/node/second?library=L');
-  await click(Array.from(element.querySelectorAll('nav button')).find(b => b.textContent === 'Relationship graph') ?? null);
+  await click(Array.from(element.querySelectorAll('nav button')).find(b => !b.closest('[hidden]') && b.getAttribute('aria-label') === 'Relationship graph') ?? null);
   expect(new URLSearchParams(location.hash.split('?')[1]).get('library')).toBe('L');
   expect(visibleMain().textContent).toContain('Scope: local workspace.');
   expect(element.textContent).not.toContain('frozen export');
@@ -135,7 +157,7 @@ it('resets search controls on explicit same-kind navigation without remounting w
   const search = visibleMain().querySelector<HTMLInputElement>('input[type="text"]')!;
   await input(search, 'Alpha');
   expect(visibleMain().querySelector<HTMLInputElement>('input[type="text"]')).toBe(search);
-  await click(Array.from(element.querySelectorAll('nav button')).find(b => b.textContent === 'SNoogL') ?? null);
+  await click(Array.from(element.querySelectorAll('nav button')).find(b => !b.closest('[hidden]') && b.getAttribute('aria-label') === 'SNoogL') ?? null);
   expect(visibleMain().querySelector<HTMLInputElement>('input[type="text"]')?.value).toBe('');
   await input(visibleMain().querySelector<HTMLInputElement>('input[type="text"]')!, 'Beta');
   await act(async () => {

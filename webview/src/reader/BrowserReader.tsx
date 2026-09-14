@@ -6,7 +6,8 @@ import { SnlGraphApp } from '../SnlGraphApp';
 import { BrowserMacroReader } from './BrowserMacroReader';
 import { frozenRelationshipGraph, frozenSearchResults } from './browserDiscovery';
 import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
-import { Button } from '../components/Button';
+import { IconButton } from '../components/IconButton';
+import { PanelHeader, type PanelHeaderHost } from '../components/PanelHeader';
 import { LibraryLayer } from './LibraryReader';
 import { EntryReader, type EntryReaderState } from './EntryReader';
 import { ReaderCapabilitiesContext, READER_STYLE } from './ReaderCapabilities';
@@ -14,12 +15,13 @@ import { HoverPopoverProvider, useHoverPopovers } from '../render/HoverPopoverPr
 import { use_localized } from '../runtime/useLocalized';
 import { wireMacroEntriesToRenderable } from '../render/macroWire';
 import { macroKindsToPalette } from '../render/macroKindPalette';
-import { apply_preferences_snapshot, set_content_language, use_content_language } from '../runtime/preferencesRuntime';
+import { set_content_language, use_content_language } from '../runtime/preferencesRuntime';
 import { installWorkspaceAssetBroker } from '../runtime/workspaceAssetBroker';
 import { groupEntryRelationships } from '../../../src/entryInfoviewRelationships';
 import type { FrozenReaderSnapshot, FrozenOutlineNode } from '../../../src/sharedReaderSnapshot';
 import { decodeReaderRoute, encodeReaderRoute, readerRouteInLibrary, frozenAssetReply, frozenImageUrl } from './browserPlatform';
 import { navigateReaderHash, notifyReaderLocation, useReaderLocation } from './readerHistory';
+import { createBrowserPreferences } from './browserPreferences';
 import { installReaderPlatformApi } from '../runtime/readerPlatform';
 import logoBlack from '../../../media/icons/logoCSS_black.svg';
 import logoWhite from '../../../media/icons/logoCSS_white.svg';
@@ -33,12 +35,12 @@ type BrowserHost = Window & typeof globalThis & {
 };
 const host = window as BrowserHost;
 const MESSAGES = defineUiMessages('browserDiscovery', {
-  search: 'SNoogL', graph: 'Relationship graph', scope: 'Scope: this frozen export only.',
-  unavailable: 'This destination is unavailable in this frozen export.', home: 'Library', back: '← Back',
+  readonly: 'Read-only', search: 'SNoogL', graph: 'Relationship graph', scope: 'Scope: this frozen export only.',
+  unavailable: 'This destination is unavailable in this frozen export.', home: 'Library', back: 'Back',
   macroPreview: 'Read-only Macro preview', sourceEntries: 'Source Entries', sourceMissing: 'Not included in this export'
 }, {
-  search: 'SNoogL', graph: '关系图', scope: '范围：仅本次冻结导出。',
-  unavailable: '此目的地在本次冻结导出中不可用。', home: '文档库', back: '← 返回',
+  readonly: '只读', search: 'SNoogL', graph: '关系图', scope: '范围：仅本次冻结导出。',
+  unavailable: '此目的地在本次冻结导出中不可用。', home: '文档库', back: '返回',
   macroPreview: '宏只读预览', sourceEntries: '来源条目', sourceMissing: '未包含在本次导出中'
 });
 function RoutePopoverBoundary({ visible }: { visible: boolean }): null {
@@ -58,6 +60,7 @@ export interface BrowserReaderHostContext {
   graphEmpty: string;
   workspaceLabel: string;
   onWorkspace(): void;
+  onRefresh?(): void;
 }
 
 export function BrowserReader({ snapshot, hostContext }: { snapshot: FrozenReaderSnapshot; hostContext?: BrowserReaderHostContext }): React.ReactElement {
@@ -82,23 +85,19 @@ export function BrowserReader({ snapshot, hostContext }: { snapshot: FrozenReade
   const active = useRef(false);
   const postMessage = useMemo(() => (message: unknown): void => { committed.current?.(message); }, []);
   const api = useMemo(() => ({ postMessage }), [postMessage]);
-  const preferences = useRef({ ...snapshot.preferences });
-  const revision = useRef(0);
+  const preferences = useMemo(() => createBrowserPreferences(snapshot.preferences, snapshot.renderSnapshotId, snapshot.languages), [snapshot]);
   const navigate = (hash: string, passive = false): void => {
     navigateReaderHash(hostContext ? routeHash(decodeReaderRoute(hash)) : hash, passive);
-  };
-  const publishPreferences = (): void => {
-    apply_preferences_snapshot({ type: 'snl.preferences/snapshot', generation: snapshot.renderSnapshotId,
-      revision: ++revision.current, preferences: preferences.current, supported_languages: snapshot.languages });
-    try { localStorage.setItem('snl-reader-preferences', JSON.stringify(preferences.current)); } catch { /* file:// privacy mode */ }
   };
   const handleMessage = (raw: unknown): void => {
     if (!raw || typeof raw !== 'object') return;
     const msg = raw as Record<string, unknown>;
+    if (preferences.handle(msg)) return;
     const asset = frozenAssetReply(snapshot.resources, msg);
     if (asset) { queueMicrotask(() => { if (active.current) window.dispatchEvent(new MessageEvent('message', { data: asset })); }); return; }
     const reply = (data: unknown): void => { queueMicrotask(() => { if (active.current) window.dispatchEvent(new MessageEvent('message', { data })); }); };
     switch (msg.type) {
+      case 'nav.refresh': hostContext?.onRefresh?.(); break;
       case 'ready':
         if (route.kind === 'search') reply(frozenSearchResults(snapshot, route));
         if (route.kind === 'graph') reply(frozenRelationshipGraph(snapshot));
@@ -132,14 +131,6 @@ export function BrowserReader({ snapshot, hostContext }: { snapshot: FrozenReade
         navigate('returnHash' in route ? route.returnHash ?? libraryHash : libraryHash); break;
       case 'selectLibrary': case 'openInfoview': navigate(libraryHash); break;
       case 'revealPointer': window.dispatchEvent(new CustomEvent('snl-reader-source', { detail: { entryId: msg.entryId } })); break;
-      case 'snl.preferences/set-language':
-        preferences.current.language = msg.language === 'auto' ? snapshot.preferences.language : String(msg.language); publishPreferences(); break;
-      case 'snl.preferences/set-reading':
-      case 'snl.preferences/update':
-        Object.assign(preferences.current, msg.patch ?? msg.preferences ?? {}); publishPreferences(); break;
-      case 'snl.content-language/changed': break;
-      case 'snl.preferences/ready': publishPreferences(); break;
-      case 'snl.reader/theme': preferences.current.color_scheme = String(msg.value); publishPreferences(); break;
       default: break;
     }
   };
@@ -151,8 +142,7 @@ export function BrowserReader({ snapshot, hostContext }: { snapshot: FrozenReade
     return () => { active.current = false; committed.current = null; release(); };
   }, [api]);
   useEffect(() => {
-    try { Object.assign(preferences.current, JSON.parse(localStorage.getItem('snl-reader-preferences') || '{}')); } catch { /* optional */ }
-    publishPreferences();
+    preferences.load();
     set_content_language(snapshot.contentLanguage);
     const broker = installWorkspaceAssetBroker(api);
     const changed = (): void => { flushSync(notifyReaderLocation); };
@@ -168,14 +158,27 @@ export function BrowserReader({ snapshot, hostContext }: { snapshot: FrozenReade
   } : null;
   const markdownImageUrlTransform = (source: string): string => frozenImageUrl(snapshot.resources, source);
   const sourceAvailable = (id: string): boolean => !hostContext && !!host.__snlSources?.pointers.some(pointer => pointer.entryId === id);
-  return <ReaderCapabilitiesContext.Provider value={{ api, edit: false, graph: true, export: false, sourceAvailable,
+  const isLibrary = route.kind === 'library' || route.kind === 'node';
+  const panelHeader: PanelHeaderHost = {
+    showRefresh: !!hostContext?.onRefresh,
+    status: t('readonly'), statusTitle: hostContext?.scope ?? t('scope'),
+    back: isLibrary
+      ? hostContext ? { label: hostContext.workspaceLabel, onClick: hostContext.onWorkspace }
+        : route.kind === 'node' ? { label: t('back'), onClick: () => navigate(libraryHash) } : undefined
+      : { label: t('back'), onClick: () => handleMessage({ type: 'back' }) },
+    actions: <>
+      {hostContext && !isLibrary ? <IconButton icon="book" label={hostContext.workspaceLabel} variant="secondary" size="md" onClick={hostContext.onWorkspace} /> : null}
+      <IconButton icon="search" label={t('search')} variant="secondary" size="md" onClick={() => navigate(routeHash({ kind: 'search', q: '', mode: 'entry', filters: {}, returnHash: location.hash || libraryHash }))} />
+      <IconButton icon="graph" label={t('graph')} variant="secondary" size="md" onClick={() => navigate(routeHash({ kind: 'graph', returnHash: location.hash || libraryHash }))} />
+    </>
+  };
+  const unavailable = <main style={READER_STYLE}>
+    <PanelHeader vsApi={api} host={panelHeader} title={t('home')} />
+    <p role="alert">{hostContext?.unavailable ?? t('unavailable')}</p>
+  </main>;
+  return <ReaderCapabilitiesContext.Provider value={{ api, edit: false, graph: true, export: false, sourceAvailable, panelHeader,
     sourceUnavailableReason: sourceUnavailable, scopeDescription: hostContext?.scope,
     graphEmptyDescription: hostContext?.graphEmpty, missingEntryDescription: hostContext?.missingEntry }}>
-    <nav aria-label={hostContext?.scope ?? t('scope')} style={{ ...READER_STYLE, paddingBottom: 0, display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-      {hostContext ? <Button onClick={hostContext.onWorkspace}>{hostContext.workspaceLabel}</Button> : null}
-      <Button onClick={() => navigate(routeHash({ kind: 'search', q: '', mode: 'entry', filters: {}, returnHash: location.hash || libraryHash }))}>{t('search')}</Button>
-      <Button onClick={() => navigate(routeHash({ kind: 'graph', returnHash: location.hash || libraryHash }))}>{t('graph')}</Button>
-    </nav>
     <div hidden={route.kind !== 'library' && route.kind !== 'node'}>
       <HoverPopoverProvider postMessage={postMessage} entries={entries} entryPackages={snapshot.entryPackages} userMacros={userMacros}
         kindPalette={kindPalette} localDetails={details} markdownImageUrlTransform={markdownImageUrlTransform}>
@@ -191,8 +194,8 @@ export function BrowserReader({ snapshot, hostContext }: { snapshot: FrozenReade
     {route.kind === 'graph' ? <SnlGraphApp initialAtomicDependenciesOnly localDetails={details} markdownImageUrlTransform={markdownImageUrlTransform} /> : null}
     {route.kind === 'macro' ? Object.hasOwn(snapshot.macros, route.name)
       ? <BrowserMacroReader key={route.name} snapshot={snapshot} name={route.name} />
-      : <main style={READER_STYLE}><p role="alert">{hostContext?.unavailable ?? t('unavailable')}</p><Button onClick={() => navigate(libraryHash)}>{t('home')}</Button></main> : null}
-    {route.kind === 'unavailable' ? <main style={READER_STYLE}><p role="alert">{hostContext?.unavailable ?? t('unavailable')}</p><Button onClick={() => navigate(libraryHash)}>{t('home')}</Button></main> : null}
+      : unavailable : null}
+    {route.kind === 'unavailable' ? unavailable : null}
     {route.kind === 'entry' ? <EntryReader key={route.entryId} state={state} loaded loadError={null} wireUserMacros={snapshot.macros}
       userMacros={userMacros} macroKinds={snapshot.macroKinds} kindPalette={kindPalette} localDetails={details}
       markdownImageUrlTransform={markdownImageUrlTransform} postMessage={postMessage} /> : null}

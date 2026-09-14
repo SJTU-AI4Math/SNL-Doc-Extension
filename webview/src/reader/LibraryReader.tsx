@@ -345,8 +345,8 @@ export function LibraryLayer({
         } : undefined}
         actions={
           <>
-            <ToolbarButton label={t('back')} onClick={ctx.goBack} title={t('backTitle')} />
-            {useReaderCapabilities().graph ? <ToolbarButton
+            {!useReaderCapabilities().panelHeader ? <ToolbarButton label={t('back')} onClick={ctx.goBack} title={t('backTitle')} /> : null}
+            {useReaderCapabilities().graph && !useReaderCapabilities().panelHeader ? <ToolbarButton
               label={t('viewGraph')}
               title={useReaderCapabilities().scopeDescription ?? (useReaderCapabilities().edit ? t('libraryGraphTitle', { slug }) : t('frozenGraphTitle'))}
               onClick={() =>
@@ -662,6 +662,7 @@ function TopBar({
 }): React.ReactElement {
   return <PanelHeader
     vsApi={useReaderCapabilities().api}
+    host={useReaderCapabilities().panelHeader}
     title={title}
     subtitle={subtitle}
     edit={editAction}

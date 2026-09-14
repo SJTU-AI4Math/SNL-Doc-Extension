@@ -208,7 +208,7 @@ describe('exported BrowserReader uses native Entry/Basics behavior', () => {
   it('enables the scoped graph without exposing host authoring or export actions', () => {
     mountReader();
     expect(screen.queryByRole('button', { name: /Edit this Library|Export HTML/ })).toBeNull();
-    expect(screen.getByRole('button', { name: 'View Graph' })).toBeDefined();
-    expect(screen.getByRole('note').textContent).toContain('Source is not included');
+    expect(screen.getByRole('button', { name: 'Relationship graph' })).toBeDefined();
+        expect(screen.getByText('Source is not included in this frozen export.').getAttribute('role')).toBe('note');
   });
 });

@@ -94,7 +94,7 @@ describe('exported shared Library outline', () => {
     expect(screen.getByRole('button', { name: 'Expand parent' })).toBeDefined();
     navigate('#/node/%broken');
     expect(screen.getByRole('alert').textContent).toContain('unavailable');
-    fireEvent.click(screen.getByRole('button', { name: 'Library' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     fireEvent.click(screen.getByRole('button', { name: 'Expand parent' }));
     expect(routeNode('middle-node')).not.toBeNull();
   });

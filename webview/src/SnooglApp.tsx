@@ -310,6 +310,7 @@ export function SnooglApp(): React.ReactElement {
     <main style={{ ...PANEL_STYLE, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <PanelHeader
         vsApi={apiRef.current}
+        host={capabilities.panelHeader}
         title={t('title')}
         subtitle={capabilities.scopeDescription ?? t(capabilities.edit ? 'subtitle' : 'frozenSubtitle')}
         back={{

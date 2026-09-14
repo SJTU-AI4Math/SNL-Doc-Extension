@@ -26,7 +26,7 @@ export function BrowserMacroReader({ snapshot, name }: { snapshot: FrozenReaderS
   const macro = snapshot.macros[name];
   const entryIds = useMemo(() => new Set(snapshot.entries.map(entry => entry.id)), [snapshot]);
   return <main style={READER_STYLE}>
-    <PanelHeader vsApi={api} title={name} subtitle={t('title')} back={{ label: t('back'), message: { type: 'back' } }} />
+    <PanelHeader host={useReaderCapabilities().panelHeader} vsApi={api} title={name} subtitle={t('title')} back={{ label: t('back'), message: { type: 'back' } }} />
     {macro.description ? <p>{resolve_localized_string(macro.description, language)}</p> : null}
     <label>{t('style')} <select value={style ?? macro.styles[0]?.style_name ?? ''} onChange={event => setStyle(event.target.value)}>
       {macro.styles.map(item => <option key={item.style_name} value={item.style_name}>{item.style_name}</option>)}

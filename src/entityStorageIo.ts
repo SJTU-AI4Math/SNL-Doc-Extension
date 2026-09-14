@@ -491,6 +491,24 @@ export function assertCurrentEntityFile(path: string, value: unknown): void {
   throw new Error(`${path} is not a managed split-entity path.`);
 }
 
+/** Strict single-name read; never enumerates Macro bodies. I/O errors propagate. */
+export async function readMacroEntityRecord(
+  storage: EntityReadStorage, packageId: string, name: string
+): Promise<MacroEntityRecord | null> {
+  const path = macroEntityPath(packageId, name);
+  const value = await storage.readJson(path);
+  if (value === null) return null;
+  try {
+    const record = validateMacroEntity(path, value, '11');
+    if (record.envelope.package !== packageId || record.macro.name !== name) {
+      throw new Error(`${path} Macro identity does not match the requested identity.`);
+    }
+    return record;
+  } catch (error) {
+    throw new EntityStorageValidationError(error instanceof Error ? error.message : String(error));
+  }
+}
+
 export async function readMacroEntityRecords(
   storage: EntityReadStorage,
   schemaVersion: '8' | '9' | '10' | '11' = '11'

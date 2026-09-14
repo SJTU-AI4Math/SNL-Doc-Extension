@@ -275,8 +275,15 @@ export function getOrGenerateCache<T>(root: CacheRoot, request: CacheRequest<T>)
     if (cacheFingerprint(request.input) !== inputHash) throw new Error('Cache input changed during generation');
     if (active.cancelled) throw abortError();
     try {
+      // Keep the computed result while a live A-B-A subscription renews this
+      // job's authority. publish captures a numeric token, so renewal during
+      // its I/O must continue with the latest token after the old attempt drains.
       // Validation still runs even when this job no longer owns publication.
-      await publish(root, request, result, active.epoch);
+      let publicationEpoch: number;
+      do {
+        publicationEpoch = active.epoch;
+        await publish(root, request, result, publicationEpoch);
+      } while (!active.cancelled && active.epoch !== publicationEpoch && epochs.get(file) === active.epoch);
     } catch (error) {
       // Disk persistence is optional. Validation, identity, missing-Library and
       // cancellation failures are not storage degradation and must still reject.

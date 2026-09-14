@@ -92,8 +92,8 @@ try {
         assert((await page.locator('li[role="option"]').first().innerText()).includes('Alpha'));
         await page.locator('li[role="option"]').first().click();
         await page.waitForFunction(() => location.hash.startsWith('#/entry/Alpha'));
-        await back(); await input.waitFor(); assert.equal(await input.inputValue(), 'Alpha');
-        await page.reload(); await input.waitFor(); assert.equal(await input.inputValue(), 'Alpha');
+        await back(); await input.waitFor(); await page.waitForFunction(() => document.querySelector('input[placeholder*="Search entries"]')?.value === 'Alpha'); assert.equal(await input.inputValue(), 'Alpha');
+        await page.reload(); await input.waitFor(); await page.waitForFunction(() => document.querySelector('input[placeholder*="Search entries"]')?.value === 'Alpha'); assert.equal(await input.inputValue(), 'Alpha');
         await input.fill(''); await input.press('Enter');
         await page.getByLabel(/^Kind/).selectOption('section');
         await page.waitForFunction(() => document.querySelectorAll('li[role="option"]').length === 1 && document.querySelector('li[role="option"]').textContent.includes('Gamma'));

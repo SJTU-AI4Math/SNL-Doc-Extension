@@ -188,7 +188,10 @@ try {
     const witness = { mode, schedule, r0: entity?.revision ?? null, r1: r1.revision, r2: r2?.revision, terminal, draft };
     (receipt.scenarios ??= []).push(witness);
     // Full remount retains the draft; NEVER clear it or accept canonical author fields.
-    await page.call('Page.reload'); await wait(`${field('Accessibility label')}.value==='Retained newer asset'`);
+    await page.call('Page.reload');
+    // Reload acknowledges navigation, not the remounted editor's controls.
+    await wait(`[...document.querySelectorAll('.snl-svg-editor-controls label')].some(l=>l.firstChild?.textContent.trim()==='Accessibility label')`);
+    await wait(`${field('Accessibility label')}.value==='Retained newer asset'`);
     assert.equal(await evaluate(`${field('SVG source')}.value`), newer);
     assert.equal(await evaluate(`${description}.value`), 'Retained newer description');
     await click('Save SVG Macro Asset'); await wait(`document.querySelector('[role=status]')?.textContent.includes('Asset saved')`);

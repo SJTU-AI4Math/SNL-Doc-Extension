@@ -83,6 +83,7 @@ export function BrowserReader({ snapshot, hostContext }: { snapshot: FrozenReade
   const kindPalette = useMemo(() => macroKindsToPalette(snapshot.macroKinds), [snapshot]);
   const committed = useRef<((message: unknown) => void) | null>(null);
   const active = useRef(false);
+  const committedSnapshot = useRef(snapshot);
   const postMessage = useMemo(() => (message: unknown): void => { committed.current?.(message); }, []);
   const api = useMemo(() => ({ postMessage }), [postMessage]);
   const preferences = useMemo(() => createBrowserPreferences(snapshot.preferences, snapshot.renderSnapshotId, snapshot.languages), [snapshot]);
@@ -94,14 +95,17 @@ export function BrowserReader({ snapshot, hostContext }: { snapshot: FrozenReade
     const msg = raw as Record<string, unknown>;
     if (preferences.handle(msg)) return;
     const asset = frozenAssetReply(snapshot.resources, msg);
-    if (asset) { queueMicrotask(() => { if (active.current) window.dispatchEvent(new MessageEvent('message', { data: asset })); }); return; }
-    const reply = (data: unknown): void => { queueMicrotask(() => { if (active.current) window.dispatchEvent(new MessageEvent('message', { data })); }); };
+    if (asset) { queueMicrotask(() => { if (active.current && committedSnapshot.current === snapshot) window.dispatchEvent(new MessageEvent('message', { data: asset })); }); return; }
+    const reply = (data: unknown): void => { queueMicrotask(() => { if (active.current && committedSnapshot.current === snapshot) window.dispatchEvent(new MessageEvent('message', { data })); }); };
     switch (msg.type) {
       case 'nav.refresh': hostContext?.onRefresh?.(); break;
-      case 'ready':
-        if (route.kind === 'search') reply(frozenSearchResults(snapshot, route));
+      case 'ready': {
+        // Typing replaces the URL without changing the navigation session.
+        const destination = readerRouteInLibrary(decodeReaderRoute(location.hash), librarySlug);
+        if (route.kind === 'search' && destination.kind === 'search') reply(frozenSearchResults(snapshot, destination));
         if (route.kind === 'graph') reply(frozenRelationshipGraph(snapshot));
         break;
+      }
       case 'query':
         if (route.kind === 'search' && typeof msg.q === 'string' && (msg.mode === 'entry' || msg.mode === 'macro')) {
           const filters = msg.filters as { kindId?: string; counterpartId?: string } | undefined;
@@ -135,20 +139,33 @@ export function BrowserReader({ snapshot, hostContext }: { snapshot: FrozenReade
     }
   };
   // Install before child layout effects, but never mutate a global port in render.
-  useInsertionEffect(() => { committed.current = handleMessage; });
+  useInsertionEffect(() => { committed.current = handleMessage; committedSnapshot.current = snapshot; });
   useInsertionEffect(() => {
     active.current = true;
     const release = installReaderPlatformApi(api);
     return () => { active.current = false; committed.current = null; release(); };
   }, [api]);
+  const initialContentLanguage = useRef(snapshot.contentLanguage);
   useEffect(() => {
-    preferences.load();
-    set_content_language(snapshot.contentLanguage);
+    // Snapshot locale seeds this reading session; refreshes must not overwrite
+    // the user's live content-language selection (including frozen HTML).
+    set_content_language(initialContentLanguage.current);
+  }, []);
+  useEffect(() => { preferences.load(); }, [preferences]);
+  useEffect(() => {
     const broker = installWorkspaceAssetBroker(api);
     const changed = (): void => { flushSync(notifyReaderLocation); };
     host.__snlExportSourceFollow = changed;
     return () => { broker.dispose(); if (host.__snlExportSourceFollow === changed) delete host.__snlExportSourceFollow; };
   }, [snapshot]);
+  const publishedSnapshot = useRef(snapshot);
+  useEffect(() => {
+    if (publishedSnapshot.current === snapshot) return;
+    publishedSnapshot.current = snapshot;
+    // Search/Graph own message-driven models and only send ready on mount.
+    // Re-publish to those real consumers rather than remounting the whole reader.
+    postMessage({ type: 'ready' });
+  }, [snapshot, postMessage]);
   const selected = route.kind === 'entry' ? byId.get(route.entryId) : undefined;
   const state: EntryReaderState | null = selected ? {
     entry: selected, kind: kinds.get(selected.kind) ?? null, entries, entryPackages: snapshot.entryPackages,

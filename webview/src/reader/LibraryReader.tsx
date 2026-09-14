@@ -321,7 +321,12 @@ export function LibraryLayer({
       return search(node.children, [...path, node.nodeId]);
     });
     search(outline, []);
-    setCollapsed(current => { const next = new Set(current); ancestors.forEach(id => next.delete(id)); return next; });
+    setCollapsed(current => {
+      // A same-node snapshot refresh must not retrigger anchor scrolling when
+      // its ancestors are already visible (the reader may have scrolled on).
+      if (!ancestors.some(id => current.has(id))) return current;
+      const next = new Set(current); ancestors.forEach(id => next.delete(id)); return next;
+    });
   }, [ctx.activeNodeId, outline]);
   useEffect(() => {
     if (!ctx.activeNodeId) return;

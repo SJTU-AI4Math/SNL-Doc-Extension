@@ -1,5 +1,7 @@
 import { apply_preferences_snapshot, type PreferencesSnapshotMessage } from '../runtime/preferencesRuntime';
 
+let nextPreferencesInstance = 0;
+
 /** Shared browser persistence for the workspace shell and frozen/local reading routes. */
 export function createBrowserPreferences(
   initial: PreferencesSnapshotMessage['preferences'],
@@ -7,9 +9,12 @@ export function createBrowserPreferences(
   languages: NonNullable<PreferencesSnapshotMessage['supported_languages']>
 ) {
   const preferences = { ...initial };
+  // Revision counters belong to a port instance, not to a possibly repeated
+  // data snapshot ID. A same-revision reconnect must not disable preferences.
+  const instanceGeneration = `${generation}:browser-preferences:${++nextPreferencesInstance}`;
   let revision = 0;
   const publish = (): void => {
-    apply_preferences_snapshot({ type: 'snl.preferences/snapshot', generation,
+    apply_preferences_snapshot({ type: 'snl.preferences/snapshot', generation: instanceGeneration,
       revision: ++revision, preferences, supported_languages: languages });
     try { localStorage.setItem('snl-reader-preferences', JSON.stringify(preferences)); } catch { /* file:// privacy mode */ }
   };

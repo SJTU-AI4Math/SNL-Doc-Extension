@@ -62,7 +62,7 @@ Then launch the extension from VS Code (F5 / Run Extension). See
   ambiguous workspace roots/providers are rejected. UUID schema work belongs
   to 0.2.0 and is not part of this candidate.
 
-## Derived caches (`0.2.0-cache` branch)
+## Derived caches
 
 Git stores Authoring, not automatically derived results. Internal, versioned
 Generators share validation, input fingerprints, atomic publication and scoped
@@ -98,6 +98,18 @@ these caches and must not be removed by cache cleanup.
 
 Custom Generator scripting and Package membership migration are outside this
 branch. The normative contracts are the `spec.cache` subtree in `.SNL_Doc`.
+
+## Catalog-first Dashboard
+
+Dashboard opens the Package and Library catalog before Entry/Macro statistics.
+Counts update locally from one cancellable, bounded background scan; unknown and
+failed counts are not zero. Package navigation stays usable during scanning.
+Relationship rows are loaded only on expansion and carry endpoint titles, not
+Entry bodies. Their count describes the persisted relationship file, including
+untouched legacy generated rows. The reading graph instead composes current
+automatic dependencies with authored relationships. Rebuild does not rewrite
+those saved records. Catalog readiness is not full topology validation or write
+authorization; canonical mutation and migration checks remain unchanged.
 
 ## Kind preset packages
 

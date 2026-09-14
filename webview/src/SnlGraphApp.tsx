@@ -16,7 +16,7 @@
 import { edgePath, LAYOUT_METRICS, type GraphNode, type GraphEdge, type LaidOutNode, type Layout } from '../../src/graphLayout';
 export { edgePath } from '../../src/graphLayout';
 import { GraphLayoutMemoryCache, graphLayoutInput } from '../../src/graphLayoutCacheModel';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useInsertionEffect, useMemo, useRef, useState } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { useVsCodeApiRef, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
@@ -206,19 +206,26 @@ export function graphNodeFill(background: string, _highlighted: boolean): string
 
 export function SnlGraphApp({ localDetails, markdownImageUrlTransform, initialAtomicDependenciesOnly = false, layoutMemory }: Pick<React.ComponentProps<typeof HoverPopoverProvider>, 'localDetails' | 'markdownImageUrlTransform'> & { initialAtomicDependenciesOnly?: boolean; layoutMemory?: GraphLayoutMemoryCache } = {}): React.ReactElement {
   const ownLayoutMemory = useMemo(() => new GraphLayoutMemoryCache(), []);
+  const currentLayoutMemory = useRef(layoutMemory ?? ownLayoutMemory);
+  useInsertionEffect(() => { currentLayoutMemory.current = layoutMemory ?? ownLayoutMemory; }, [layoutMemory, ownLayoutMemory]);
   const extensionApiRef = useVsCodeApiRef();
   const capabilities = useReaderCapabilities();
   const apiRef = useRef(capabilities.api ?? extensionApiRef.current);
   apiRef.current = capabilities.api ?? extensionApiRef.current;
   const contentLanguage = use_content_language();
-  const [msg, setMsg] = useState<GraphMessage | null>(null);
+  // Accept the message and its snapshot-owned cache together. A new owner prop
+  // must not recompute the retained old message before the new ready reply arrives.
+  const [model, setModel] = useState<{ message: GraphMessage | null; memory: GraphLayoutMemoryCache }>(
+    () => ({ message: null, memory: layoutMemory ?? ownLayoutMemory })
+  );
+  const msg = model.message;
   const [graphError, setGraphError] = useState<GraphErrorMessage | null>(null);
 
   useEffect(() => {
     function onMessage(event: MessageEvent): void {
       const incoming: unknown = event.data;
       if (isGraphMessage(incoming)) {
-        setMsg(incoming);
+        setModel({ message: incoming, memory: currentLayoutMemory.current });
         setGraphError(null);
       } else if (isGraphErrorMessage(incoming)) {
         // Preserve the last valid snapshot, but make the stale state explicit.
@@ -257,7 +264,7 @@ export function SnlGraphApp({ localDetails, markdownImageUrlTransform, initialAt
       localDetails={localDetails}
       markdownImageUrlTransform={markdownImageUrlTransform}
     >
-      <SnlGraphInner layoutMemory={layoutMemory ?? ownLayoutMemory} msg={msg} graphError={graphError} post={post} apiRef={apiRef} initialAtomicDependenciesOnly={initialAtomicDependenciesOnly} />
+      <SnlGraphInner layoutMemory={model.memory} msg={msg} graphError={graphError} post={post} apiRef={apiRef} initialAtomicDependenciesOnly={initialAtomicDependenciesOnly} />
     </HoverPopoverProvider>
   );
 }

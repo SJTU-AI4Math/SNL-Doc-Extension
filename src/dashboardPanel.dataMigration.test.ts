@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  rootKey: 'file:/ws' as string | null,
   receive: undefined as ((message: unknown) => Promise<void>) | undefined,
   postMessage: vi.fn(async (_message: unknown) => true),
   executeCommand: vi.fn(async () => undefined),
@@ -66,7 +67,10 @@ vi.mock('./snlDoc', () => ({
 }));
 vi.mock('./panelUtil', () => ({
   buildPanelHtml: () => '<html></html>',
-  firstWorkspaceFolder: () => ({ path: '/ws', scheme: 'file', toString: () => 'file:/ws' }),
+  firstWorkspaceFolder: () => {
+    const key = mocks.rootKey;
+    return key === null ? undefined : { path: '/ws', scheme: key.split(':')[0], toString: () => key };
+  },
   webviewLocalResourceRoots: () => []
 }));
 vi.mock('./dashboardStatistics', () => ({
@@ -88,6 +92,7 @@ describe('Dashboard data migration host routing', () => {
   afterEach(() => DashboardPanel.currentPanel?.dispose());
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.rootKey = 'file:/ws';
     mocks.receive = undefined;
     DashboardPanel.currentPanel = undefined;
   });
@@ -97,6 +102,31 @@ describe('Dashboard data migration host routing', () => {
     await mocks.receive?.({ type: 'ready' });
     expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'overview' }));
     expect(mocks.inspect).not.toHaveBeenCalled();
+  });
+
+  it('retires old-provider relationship errors across root switches and tags the no-workspace generation', async () => {
+    let reject!: (error: Error) => void;
+    mocks.relationships.mockImplementationOnce(() => new Promise((_resolve, no) => { reject = no; }));
+    mocks.rootKey = 'memfs://A/ws';
+    DashboardPanel.createOrShow({ path: '/ext' } as never);
+    await mocks.receive?.({ type: 'ready' });
+    await mocks.receive?.({ type: 'loadDashboardRelationships' });
+    await vi.waitFor(() => expect(mocks.relationships).toHaveBeenCalledTimes(1));
+    const oldSignal = mocks.relationships.mock.calls[0][1];
+    mocks.rootKey = 'memfs://B/ws';
+    await mocks.receive?.({ type: 'nav.refresh' });
+    expect(oldSignal.aborted).toBe(true);
+    reject(new Error('retired-provider-error'));
+    await vi.waitFor(() => expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'dashboardRelationships', generation: 2, status: 'ready'
+    })));
+    expect(JSON.stringify(mocks.postMessage.mock.calls)).not.toContain('retired-provider-error');
+    expect((mocks.relationships.mock.calls[1][0] as { toString(): string }).toString()).toBe('memfs://B/ws');
+    mocks.rootKey = null;
+    await mocks.receive?.({ type: 'nav.refresh' });
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'overview', generation: 3, overview: expect.objectContaining({ hasSnlDoc: false })
+    }));
   });
 
   it('keeps navigation live and coalesces refreshes while aborting a blocked old scan', async () => {

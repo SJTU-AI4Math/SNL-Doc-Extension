@@ -225,6 +225,7 @@ export class DashboardPanel {
     if (!root) {
       void this.panel.webview.postMessage({
         type: 'overview',
+        generation,
         overview: {
           hasSnlDoc: false,
           totalEntryCount: null,

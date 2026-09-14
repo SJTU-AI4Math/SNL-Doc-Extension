@@ -3,6 +3,7 @@ import { defineUiMessages } from './uiMessages';
 export const DASHBOARD_MESSAGES = defineUiMessages(
   'dashboard',
   {
+    persistedRelationships: 'Counts and rows below describe saved relationship records, including legacy generated rows. View Graph includes current automatic dependencies; rebuilding never rewrites these saved records.',
     title: 'SNL Dashboard', loading: 'Loading project overview…', overviewLoadError: 'Could not load project overview: {message}', setupIntroBefore: 'This workspace does not have an', setupIntroAfter: 'folder yet. Create the skeleton alone, or initialize a standard Kind catalog as part of setup.',
     runInit: 'Run SNL: Init', initEntryKinds: 'Initialize Entry Kinds', initMacroKinds: 'Initialize Macro Kinds', entryKindPreset: 'Entry Kind preset', macroKindPreset: 'Macro Kind preset', emptyPreset: 'Empty', setupStatus: 'SNL setup status', initializing: 'Initializing SNL workspace…',
     viewGraph: 'View Graph', viewGraphTitle: 'Open the pool-wide relationship graph', openInfoview: 'Open Infoview →', openInfoviewTitle: 'Open the Infoview (reading surface)',
@@ -19,6 +20,7 @@ export const DASHBOARD_MESSAGES = defineUiMessages(
     editEntryKind: 'Edit entry kind {id}', deleteEntryKind: 'Delete entry kind {id}', editMacroKind: 'Edit macro kind {id}', deleteMacroKind: 'Delete macro kind {id}', colorTitle: 'stroke {stroke} / background {background}', openEntryPackage: 'Open Entry Package {id}', editEntry: 'Edit entry {title}', deleteEntry: 'Delete entry {id}', unknownKindTitle: 'Unknown kind “{kind}” — no matching entry kind in config.json', unknownKind: '⚠ unknown', editRelationship: 'Edit relationship {id}', deleteRelationship: 'Delete relationship {id}', missingEndpoint: 'No entry with id “{id}” in the shared pool. The endpoint was likely deleted.', untitled: '(untitled)', unserializable: '(unserializable)'
   },
   {
+    persistedRelationships: '以下计数与列表对应已保存的关系记录（含旧生成记录）。查看关系图会包含当前自动依赖；重建不会改写这些已保存记录。',
     title: 'SNL 仪表板', loading: '正在加载项目概览…', overviewLoadError: '无法加载项目概览：{message}', setupIntroBefore: '此工作区尚无', setupIntroAfter: '文件夹。您可以仅创建基本目录，也可以在设置时一并初始化标准类别目录。',
     runInit: '运行 SNL：初始化', initEntryKinds: '初始化条目类别', initMacroKinds: '初始化宏类别', entryKindPreset: '条目类别预设', macroKindPreset: '宏类别预设', emptyPreset: '空', setupStatus: 'SNL 设置状态', initializing: '正在初始化 SNL 工作区…',
     viewGraph: '查看关系图', viewGraphTitle: '打开共享池的完整关系图', openInfoview: '打开信息视图 →', openInfoviewTitle: '打开信息视图（阅读界面）',

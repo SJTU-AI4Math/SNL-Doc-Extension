@@ -36,8 +36,14 @@ it('uses a new memory owner and current graph when the frozen export is replaced
   const compute=vi.spyOn(geometry,'layout');
   const first=snapshot(); let view: ReturnType<typeof render>;
   await act(async()=>{view=render(<BrowserReader snapshot={first}/>);});
+  const filters = screen.getByTitle('Expand filters');
+  fireEvent.click(filters);
+  const atomic = screen.getByRole('checkbox', { name: 'atomic deps only' });
+  atomic.focus();
   const second=snapshot('two'); second.entries[0].title='Different title in another frozen export';
   await act(async()=>{view!.rerender(<BrowserReader snapshot={second}/>);});
   expect(screen.getByRole('button',{name:'Entry Different title in another frozen export (a)'})).toBeTruthy();
   expect(compute).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole('checkbox', { name: 'atomic deps only' })).toBe(atomic);
+  expect(document.activeElement).toBe(atomic);
 });

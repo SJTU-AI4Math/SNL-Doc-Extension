@@ -74,6 +74,15 @@ beforeEach(async () => { root = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'das
 afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
 
 describe('real filesystem Dashboard catalog and incremental scans', () => {
+  it('reports an unreadable workspace root as a catalog error, never as permission to initialize', async () => {
+    await fixture(10);
+    probe.failSuffix = '/.SNL_Doc';
+    const catalog = await readDashboardCatalog(vscode.Uri.file(root));
+    expect(catalog.hasSnlDoc).toBe(true);
+    expect(catalog.dataStatus).toMatchObject({ status: 'invalid', message: 'permission denied' });
+    expect(probe.reads).toEqual([]);
+  });
+
   it.each([100, 9000])('opens a fixed two-Package catalog with %i Entries without reading entity or graph content', async count => {
     await fixture(count);
     const start = performance.now();

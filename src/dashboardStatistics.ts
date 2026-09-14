@@ -30,6 +30,8 @@ function statisticsStorage(root: vscode.Uri) {
 }
 
 async function statisticsRelationships(storage: ReturnType<typeof statisticsStorage>) {
+  // Management counts describe the persisted Authoring file (including untouched
+  // legacy automatic rows), not the Reader's current composed dependency graph.
   const raw = await storage.readJson('relationships.json');
   return raw === null ? [] : parseRelationships(raw);
 }

@@ -3660,13 +3660,22 @@ export interface DashboardCatalog {
  */
 export async function readDashboardCatalog(workspaceRoot: vscode.Uri): Promise<DashboardCatalog> {
   const catalog: DashboardCatalog = {
-    hasSnlDoc: await exists(snlRootUri(workspaceRoot)), totalEntryCount: null,
+    // Unknown/unreadable is not absent: keep independent navigation, not Init.
+    hasSnlDoc: true, totalEntryCount: null,
     entryPackages: [], libraries: [], macroPackages: [], entryKinds: [], macroKinds: [],
     dataStatus: { status: 'missing', currentVersion: null, targetVersion: CURRENT_DATA_VERSION,
       pendingCount: 0, message: '' }
   };
-  if (!catalog.hasSnlDoc) return catalog;
   try {
+    try { await vscode.workspace.fs.stat(snlRootUri(workspaceRoot)); }
+    catch (error) {
+      const code = (error as { code?: string } | null)?.code;
+      if (code === 'ENOENT' || code === 'FileNotFound') {
+        catalog.hasSnlDoc = false;
+        return catalog;
+      }
+      throw error;
+    }
     const raw = await readJson<unknown>(configUri(workspaceRoot));
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('config.json must be a JSON object.');
     const config = normalizeConfig(raw);

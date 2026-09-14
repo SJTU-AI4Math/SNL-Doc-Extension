@@ -46,6 +46,8 @@ import {
 import { clearCache, cachePath } from './derivedCache';
 import { entryEntityPath } from './entityStorage';
 import { relationshipGraphEdge } from './relationshipGraphWire';
+import { readDashboardCatalog } from './snlDoc';
+import { readDashboardStatistics, readDashboardRelationships } from './dashboardStatistics';
 const roots: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); provider.files.clear(); provider.statError = ''; for (const r of roots.splice(0)) await fs.rm(r, { recursive: true, force: true }); });
 async function fixture() {
@@ -90,6 +92,24 @@ async function withMacro() {
 }
 
 describe('Dependency cache real host storage', () => {
+  it('keeps Dashboard persisted-pool statistics separate from current composed reader dependencies', async () => {
+    const f = await withMacro(); const before = await authored(f.root);
+    const catalog = await readDashboardCatalog(f.uri);
+    expect(catalog.dataStatus.status).toBe('unchecked');
+    const signal = new AbortController().signal;
+    const stats = await readDashboardStatistics(f.uri, catalog, signal);
+    const table = await readDashboardRelationships(f.uri, signal);
+    expect(stats.relationshipCount).toBe(f.relationships.length);
+    expect(table.relationships).toEqual(f.relationships);
+    expect(table.entries.every(e => Object.keys(e).sort().join(',') === 'id,title')).toBe(true);
+    const composed = await readRelationships(f.uri);
+    expect(composed.some(r => r.id === 'legacy')).toBe(false);
+    expect(composed.some(r => r.id === 'dep.A.B')).toBe(true);
+    expect(table.relationships.some(r => r.id === 'dep.A.B')).toBe(false);
+    await regenerateDependencyRelationships(f.uri, { entryIds: null });
+    expect(await readDashboardRelationships(f.uri, signal)).toEqual(table);
+    expect(await authored(f.root)).toEqual(before);
+  });
   it('cold/hot/concurrent/clear/corrupt reads generate only cache and preserve the authored pool', async () => {
     const f = await withMacro(); const before = await authored(f.root);
     const cold = await readRelationships(f.uri);

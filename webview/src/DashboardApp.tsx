@@ -501,6 +501,7 @@ function Initialized({
           setOpenRelationships(v => !v);
         }}
       >
+        <p role="note">{t('persistedRelationships')}</p>
         {relationshipsStatus.status !== 'ready' ? <p role={relationshipsStatus.status === 'error' ? 'alert' : 'status'}>
           {relationshipsStatus.status === 'error' ? t('relationshipsError', { message: relationshipsStatus.message ?? '' }) : relationshipsStatus.status === 'idle' ? t('relationshipsUnavailable') : t('relationshipsPending')}
         </p> : null}

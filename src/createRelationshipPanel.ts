@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
+import { parseRelationshipSource, type RelationshipSource } from './relationshipSelection';
 import { bind_preferences_panel_title } from './preferencesHost';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
 
 const MESSAGES = defineHostMessages(
-  { createTitle: 'SNL Create Relationship', editTitle: 'SNL Edit Relationship — {id}', loadFailed: 'Could not load Relationship editor data: {error}', noWorkspace: 'SNL Relationship editor requires an open folder / workspace.', noPayload: 'No relationship payload was provided.', updated: 'Relationship “{id}” updated.', conflict: 'Relationship “{id}” changed after this editor opened. Reload before saving.', notFound: 'Relationship “{id}” no longer exists.', unknownEndpoint: 'Unknown {endpoint} entry: “{id}”.', initFirst: '.SNL_Doc does not exist yet. Run “SNL: Init” first.', created: 'Relationship “{id}” created.', duplicate: 'Relationship id “{id}” already exists.', editorFailed: 'SNL Relationship editor failed: {error}' },
-  { createTitle: 'SNL 创建关系', editTitle: 'SNL 编辑关系 — {id}', loadFailed: '无法加载关系编辑器数据：{error}', noWorkspace: 'SNL 关系编辑器需要打开文件夹或工作区。', noPayload: '未提供关系数据。', updated: '关系“{id}”已更新。', conflict: '关系“{id}”在此编辑器打开后发生了变化。请重新加载后再保存。', notFound: '关系“{id}”已不存在。', unknownEndpoint: '未知的{endpoint}条目：“{id}”。', initFirst: '.SNL_Doc 尚不存在。请先运行“SNL：初始化”。', created: '关系“{id}”已创建。', duplicate: '关系 ID“{id}”已存在。', editorFailed: 'SNL 关系编辑器失败：{error}' }
+  { savedTitle: 'SNL Saved Relationship — {id}', createTitle: 'SNL Create Relationship', editTitle: 'SNL Edit Relationship — {id}', loadFailed: 'Could not load Relationship editor data: {error}', noWorkspace: 'SNL Relationship editor requires an open folder / workspace.', noPayload: 'No relationship payload was provided.', updated: 'Relationship “{id}” updated.', conflict: 'Relationship “{id}” changed after this editor opened. Reload before saving.', notFound: 'Relationship “{id}” no longer exists.', unknownEndpoint: 'Unknown {endpoint} entry: “{id}”.', initFirst: '.SNL_Doc does not exist yet. Run “SNL: Init” first.', created: 'Relationship “{id}” created.', duplicate: 'Relationship id “{id}” already exists.', editorFailed: 'SNL Relationship editor failed: {error}' },
+  { savedTitle: 'SNL 已保存关系 — {id}', createTitle: 'SNL 创建关系', editTitle: 'SNL 编辑关系 — {id}', loadFailed: '无法加载关系编辑器数据：{error}', noWorkspace: 'SNL 关系编辑器需要打开文件夹或工作区。', noPayload: '未提供关系数据。', updated: '关系“{id}”已更新。', conflict: '关系“{id}”在此编辑器打开后发生了变化。请重新加载后再保存。', notFound: '关系“{id}”已不存在。', unknownEndpoint: '未知的{endpoint}条目：“{id}”。', initFirst: '.SNL_Doc 尚不存在。请先运行“SNL：初始化”。', created: '关系“{id}”已创建。', duplicate: '关系 ID“{id}”已存在。', editorFailed: 'SNL 关系编辑器失败：{error}' }
 );
 const hostText = () => createHostTranslator(read_extension_preferences().language, MESSAGES);
 import {
@@ -14,6 +15,7 @@ import {
   isAutomaticDependency,
   readEntries,
   readRelationships,
+  readAuthoredRelationships,
   updateRelationship,
   type EntryData,
   type RelationshipData
@@ -30,13 +32,13 @@ import {
  * panel (cat 2026-07-10). Mirrors {@link CreateEntryPanel}'s shape:
  *
  *  - `snlDoc.createRelationship` → create-mode (no identity).
- *  - `snlDoc.editRelationship`   → edit-mode keyed by relationship id.
+ *  - `snlDoc.editRelationship`   → edit-mode keyed by source and relationship id (source defaults to current).
  *
  * Message protocol with the webview (`createRelationship.js`):
  *  - in  : `{ type: 'ready' }` (asks for context)
  *        | `{ type: 'create', relationship: RelationshipData }`
  *        | `{ type: 'update', relationship: Omit<RelationshipData,'id'> }`
- *  - out : `{ type: 'context', mode, id?, existing?, entryPool[] }`
+ *  - out : `{ type: 'context', mode, source, id?, existing?, readOnly, entryPool[] }`
  *        | `{ type: 'created' | 'updated' | 'duplicate'
  *            | 'unknownEndpoint' | 'notFound' | 'invalid'
  *            | 'noSnlDoc' | 'noWorkspace' | 'error', ... }`
@@ -50,6 +52,7 @@ export class CreateRelationshipPanel {
   private readonly extensionUri: vscode.Uri;
   private readonly mode: 'create' | 'edit';
   private readonly id: string;
+  private readonly source: RelationshipSource;
   private disposables: vscode.Disposable[] = [];
   private contextGeneration = 0;
 
@@ -57,18 +60,20 @@ export class CreateRelationshipPanel {
     CreateRelationshipPanel.open(extensionUri, 'create', '');
   }
 
-  public static editOrShow(extensionUri: vscode.Uri, id: string): void {
-    if (!id) return;
-    CreateRelationshipPanel.open(extensionUri, 'edit', id);
+  public static editOrShow(extensionUri: vscode.Uri, id: string, source?: unknown): void {
+    const domain = parseRelationshipSource(source);
+    if (!id || !domain) return;
+    CreateRelationshipPanel.open(extensionUri, 'edit', id, domain);
   }
 
   private static open(
     extensionUri: vscode.Uri,
     mode: 'create' | 'edit',
-    id: string
+    id: string,
+    source: RelationshipSource = 'current'
   ): void {
     const column = vscode.ViewColumn.Active;
-    const key = `${mode}:${id}`;
+    const key = `${mode}:${source}:${id}`;
 
     const existing = CreateRelationshipPanel.instances.get(key);
     if (existing) {
@@ -76,7 +81,7 @@ export class CreateRelationshipPanel {
       return;
     }
 
-    const title = mode === 'edit' ? hostText()('editTitle', { id }) : hostText()('createTitle');
+    const title = mode === 'edit' ? hostText()(source === 'saved' ? 'savedTitle' : 'editTitle', { id }) : hostText()('createTitle');
     const panel = vscode.window.createWebviewPanel(
       CreateRelationshipPanel.viewType,
       title,
@@ -88,12 +93,12 @@ export class CreateRelationshipPanel {
       }
     );
     bind_preferences_panel_title(panel, () => mode === 'edit'
-      ? hostText()('editTitle', { id })
+      ? hostText()(source === 'saved' ? 'savedTitle' : 'editTitle', { id })
       : hostText()('createTitle'));
 
     CreateRelationshipPanel.instances.set(
       key,
-      new CreateRelationshipPanel(panel, extensionUri, mode, id)
+      new CreateRelationshipPanel(panel, extensionUri, mode, id, source)
     );
   }
 
@@ -101,18 +106,20 @@ export class CreateRelationshipPanel {
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
     mode: 'create' | 'edit',
-    id: string
+    id: string,
+    source: RelationshipSource
   ) {
     this.panel = panel;
     this.extensionUri = extensionUri;
     this.mode = mode;
     this.id = id;
+    this.source = source;
 
     this.panel.webview.html = buildPanelHtml(
       this.extensionUri,
       this.panel.webview,
       'createRelationship',
-      mode === 'edit' ? hostText()('editTitle', { id }) : hostText()('createTitle'), this.disposables);
+      mode === 'edit' ? hostText()(source === 'saved' ? 'savedTitle' : 'editTitle', { id }) : hostText()('createTitle'), this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),
@@ -136,7 +143,7 @@ export class CreateRelationshipPanel {
       try {
         const [entries, rels] = await Promise.all([
           readEntries(root),
-          readRelationships(root)
+          this.source === 'saved' ? readAuthoredRelationships(root) : readRelationships(root)
         ]);
         if (generation !== this.contextGeneration) return;
         entryPool = entries.map((e) => ({ id: e.id, title: e.title ?? '' }));
@@ -158,6 +165,7 @@ export class CreateRelationshipPanel {
     void this.panel.webview.postMessage({
       type: 'context',
       mode: this.mode,
+      source: this.source,
       targetState: existing ? 'found' : this.mode === 'edit' ? 'notFound' : 'found',
       id: this.id || undefined,
       existing,
@@ -331,7 +339,7 @@ export class CreateRelationshipPanel {
   }
 
   public dispose(): void {
-    const key = `${this.mode}:${this.id}`;
+    const key = `${this.mode}:${this.source}:${this.id}`;
     CreateRelationshipPanel.instances.delete(key);
 
     this.panel.dispose();

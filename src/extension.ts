@@ -890,9 +890,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const editRelationship = vscode.commands.registerCommand(
     'snlDoc.editRelationship',
-    (id?: unknown) => {
+    (id?: unknown, source?: unknown) => {
       if (typeof id !== 'string' || !id.trim()) return;
-      CreateRelationshipPanel.editOrShow(context.extensionUri, id.trim());
+      // The panel validates the optional source at this command boundary too.
+      CreateRelationshipPanel.editOrShow(context.extensionUri, id.trim(), source);
     }
   );
 

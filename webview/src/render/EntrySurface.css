@@ -1,3 +1,10 @@
+/* KaTeX's empty vertical alignment struts can overlap visible references.
+   Only these purely empty layout boxes must be transparent to hit-testing;
+   populated vlists and semantic targets keep their normal pointer behavior. */
+.snl-entry-overflow-surface .katex .vlist:has(> span:only-child:empty) {
+  pointer-events: none;
+}
+
 .snl-entry-overflow-surface {
   width: 100%;
   min-width: 0;

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
+  hooks: undefined as import('@sjtu-ai4math/snl-basics/entry').SnlRenderHooks | undefined,
   hoverEnabled: false,
   explicitSrc: null as string | null,
   currentPopoverId: null as string | null
@@ -50,7 +51,9 @@ vi.mock('@sjtu-ai4math/snl-basics/entry', () => {
     EntryDataDriver: class { constructor(_options: unknown) {} },
     MacroDataDriver: class { constructor(_options: unknown) {} },
     SnlInteractionDriver: Driver,
-    EntrySurface: ({ interaction_driver }: { interaction_driver: Driver }) => (
+    EntrySurface: ({ interaction_driver, hooks }: { interaction_driver: Driver; hooks: import('@sjtu-ai4math/snl-basics/entry').SnlRenderHooks }) => {
+      state.hooks = hooks;
+      return (
       <button
         data-testid="reference"
         data-src={state.explicitSrc ?? undefined}
@@ -73,7 +76,8 @@ vi.mock('@sjtu-ai4math/snl-basics/entry', () => {
           shift_key: event.shiftKey, alt_key: event.altKey
         })}
       >reference</button>
-    )
+      );
+    }
   };
 });
 
@@ -88,6 +92,31 @@ afterEach(() => {
 });
 
 describe('EntryRender popover preference', () => {
+  it('memoizes the content/catalog policy but preserves user hooks overrides', () => {
+    const props = {
+      entry: { id: 'root', kind: 'definition', title: 'Root',
+        content: { snl: 'Type.annotation[nameless](@x,T)' }, pointer: null },
+      kind: null, entries: [], postMessage: vi.fn(),
+      userMacros: { 'Type.annotation': {
+        name: 'Type.annotation', description: '', source: { entries: [], urls: [] },
+        dynamic_arity: false, tags: [], styles: [{ style_name: 'nameless', tags: [],
+          template: { mode: 'formula_inline' as const, body: '#1' } }]
+      } }
+    };
+    const view = render(<EntryRender {...props} />);
+    const initial = state.hooks?.highlightStrategy;
+    view.rerender(<EntryRender {...props} entry={{ ...props.entry, title: 'Retitled' }} />);
+    expect(state.hooks?.highlightStrategy).toBe(initial);
+    view.rerender(<EntryRender {...props} entry={{ ...props.entry, content: { snl: 'x' } }} />);
+    expect(state.hooks?.highlightStrategy).not.toBe(initial);
+    view.rerender(<EntryRender {...props} userMacros={{}} />);
+    expect(state.hooks?.highlightStrategy).not.toBe(initial);
+    const custom = { computeHighlightSet: vi.fn(() => ({ singleHover: null, bvarScope: [], binderDecl: [] })) };
+    const renderTooltip = vi.fn(() => null);
+    view.rerender(<EntryRender {...props} hooksOverride={{ highlightStrategy: custom, renderTooltip }} />);
+    expect(state.hooks?.highlightStrategy).toBe(custom);
+    expect(state.hooks?.renderTooltip).toBe(renderTooltip);
+  });
   it('prefers explicit data-src for hover, pin, and navigation', () => {
     state.hoverEnabled = true;
     state.explicitSrc = 'explicit-child';

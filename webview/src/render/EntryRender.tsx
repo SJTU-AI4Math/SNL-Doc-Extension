@@ -30,6 +30,7 @@ import {
 import type { MacroRecord } from './macroData';
 import type { ThemedKindColoring } from '../../../src/kindColoring';
 import { extensionRenderers } from './blockRenderers';
+import { createAnnotationHighlightStrategy } from './annotationHighlight';
 import {
   useCurrentPopoverId,
   useHoverPopovers,
@@ -321,7 +322,12 @@ export function EntryRender({
   }), [activateReferencedEntry, clearCurrentHover, currentPopoverId, hoverEnabled, popovers,
     rememberActivation]);
 
+  const annotationHighlightStrategy = useMemo(
+    () => createAnnotationHighlightStrategy(entry.content.snl, userMacros, contentLanguage),
+    [entry.content.snl, userMacros, contentLanguage]
+  );
   const hooks = useMemo<SnlRenderHooks>(() => ({
+    highlightStrategy: annotationHighlightStrategy,
     renderTooltip: () => null,
     // `renderers` is a WHOLE-registry replacement (the view shallow-merges
     // hooks), and `extensionRenderers` already spreads SNL-Basics's defaults.
@@ -334,7 +340,7 @@ export function EntryRender({
     // `/entry`.
     renderers: extensionRenderers as unknown as SnlRenderHooks['renderers'],
     ...(hooksOverride ?? {})
-  }), [hooksOverride]);
+  }), [annotationHighlightStrategy, hooksOverride]);
 
   const interactionPorts = useMemo(() => ({
     on_title_activate: disableTitleJump

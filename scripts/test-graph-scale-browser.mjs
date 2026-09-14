@@ -4,15 +4,15 @@ export async function verifyGraphScale({ evaluate, wait, screenshot, page, evide
   const select=async(label,value)=>{await evaluate(`(()=>{const s=document.querySelector('select[aria-label="${label}"]');s.value=${JSON.stringify(value)};s.dispatchEvent(new Event('change',{bubbles:true}));})()`);await pause();};
   const read=()=>evaluate(`(()=>{
     const nodes=[...document.querySelectorAll('[data-node-id]')].map(n=>{
-      const s=n.querySelector(':scope > circle,:scope > rect'),r=s.getBoundingClientRect(),m=n.transform.baseVal.consolidate().matrix,circle=s.tagName==='circle';
+      const paint=window.__graphQA.read(n),s=paint.shape,r=paint.screenRect,m=n.transform.baseVal.consolidate().matrix,circle=s.tagName==='circle';
       const x=circle?+s.getAttribute('cx'):+s.getAttribute('x')+(+s.getAttribute('width'))/2,y=circle?+s.getAttribute('cy'):+s.getAttribute('y')+(+s.getAttribute('height'))/2;
-      const text=n.querySelector('foreignObject');let glyphH=null;if(text){const range=document.createRange();range.selectNodeContents(text);glyphH=range.getBoundingClientRect().height;}
+      const text=paint.text;let glyphH=null;if(text){const range=document.createRange();range.selectNodeContents(text);glyphH=range.getBoundingClientRect().height;}
       return {glyphH,id:n.dataset.nodeId,shape:circle?'dot':'title',r:circle?+s.getAttribute('r'):null,stroke:+s.getAttribute('stroke-width'),world:[m.e+m.a*x,m.f+m.d*y],x:r.x+r.width/2,y:r.y+r.height/2,w:r.width,h:r.height};
     }).sort((a,b)=>a.id.localeCompare(b.id));
     const viewport=document.getElementById('snl-graph-background').closest('svg').querySelector(':scope > g[transform]');
     return {nodes,scale:viewport.transform.baseVal.consolidate().matrix.a,viewport:viewport.getAttribute('transform'),labels:[...document.querySelectorAll('[data-package-label]')].map(n=>({text:n.textContent,font:getComputedStyle(n).fontSize,w:n.getBoundingClientRect().width,h:n.getBoundingClientRect().height}))};
   })()`);
-  const point=anchorNode=>evaluate(anchorNode?`(()=>{const r=document.querySelector('[data-node-id="Goal"] > rect').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`:`(()=>{const r=document.getElementById('snl-graph-background').closest('svg').getBoundingClientRect();return {x:r.left+20,y:r.top+20}})()`);
+  const point=anchorNode=>evaluate(anchorNode?`(()=>{const r=document.querySelector('[data-node-id="Goal"] [data-node-paint] > rect').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`:`(()=>{const r=document.getElementById('snl-graph-background').closest('svg').getBoundingClientRect();return {x:r.left+20,y:r.top+20}})()`);
   const zoom=async (target,anchorNode=false)=>{
     const p=await point(anchorNode);let s=await read();
     for(let i=0;i<50 && (s.scale>target*1.08||s.scale<target/1.08);i++) {

@@ -2,6 +2,7 @@
 // Exercise the actual classic-script graph bundle. The VS Code transport is a
 // fixture here; a separate Extension Development Host probe covers host wiring.
 import assert from 'node:assert/strict';
+import { installGraphPaintQA } from './test-graph-paint-browser.mjs';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { spawn, spawnSync } from 'node:child_process';
@@ -14,7 +15,7 @@ const artifacts = process.env.SNL_GRAPH_QA_OUTPUT || mkdtempSync(resolve(tmpdir(
 mkdirSync(artifacts, { recursive: true });
 if (!process.argv.includes('--no-build')) {
   const build = spawnSync(process.execPath, ['node_modules/vite/bin/vite.js', 'build', '--config', 'webview/vite.config.ts'], {
-    cwd: root, env: { ...process.env, SNL_WEBVIEW_ENTRY: 'snlGraph', RAYON_NUM_THREADS: '2' }, stdio: 'inherit'
+    cwd: root, env: { ...process.env, SNL_WEBVIEW_ENTRY: 'snlGraph', RAYON_NUM_THREADS: process.env.RAYON_NUM_THREADS || '1' }, stdio: 'inherit'
   });
   assert.equal(build.status, 0, 'production graph bundle must build');
 }
@@ -88,10 +89,11 @@ try {
   page=await connect(targets.find(t=>t.id===targetId).webSocketDebuggerUrl);
   await page.call('Runtime.enable'); await page.call('Log.enable'); await page.call('Page.enable');
   await page.call('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  await page.call('Page.addScriptToEvaluateOnNewDocument', {source: `(${installGraphPaintQA.toString()})()`});
   await page.call('Page.navigate',{url});
   const evaluate=async expression=>{const r=await page.call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value;};
   const wait=async(expression)=>{for(let i=0;i<160;i++){if(await evaluate(expression))return;await sleep(25);}throw Error('Timed out: '+expression);};
-  const screenshot=async name=>{const r=await page.call('Page.captureScreenshot',{format:'png'});writeFileSync(resolve(artifacts,name+'.png'),Buffer.from(r.data,'base64'));};
+  const screenshot=async name=>{(evidence.nativePaint ||= {})[name]=await evaluate('window.__graphQA.audit()');if(!evidence.paintNegativeControls&&evidence.nativePaint[name].titles)evidence.paintNegativeControls=await evaluate('window.__graphQA.negativeControls()');const r=await page.call('Page.captureScreenshot',{format:'png'});writeFileSync(resolve(artifacts,name+'.png'),Buffer.from(r.data,'base64'));};
   await wait(`document.querySelectorAll('svg g[role="button"][data-package-id]').length===8`);
   await evaluate(`(()=>{window.__pointerTrace=[];for(const type of ['pointerover','pointerout'])document.addEventListener(type,e=>window.__pointerTrace.push({type,target:e.target.closest?.('[data-node-id]')?.dataset.nodeId||e.target.tagName,related:e.relatedTarget?.closest?.('[data-node-id]')?.dataset.nodeId||e.relatedTarget?.tagName}),true);})()`);
   // First new-behavior gate also serves as a RED control on the predecessor bundle.
@@ -101,10 +103,10 @@ try {
   const selection=async(kind,pattern)=>{
     await evaluate(`(()=>{const s=[...document.querySelectorAll('select')].find(s=>[...s.options].some(o=>new RegExp(${JSON.stringify(kind)},'i').test(o.textContent)));const o=[...s.options].find(o=>new RegExp(${JSON.stringify(pattern)},'i').test(o.textContent));if(!o)throw Error('option missing');s.value=o.value;s.dispatchEvent(new Event('change',{bubbles:true}));})()`);await sleep(100);
   };
-  const snapshot=()=>evaluate(`(()=>{const ns=[...document.querySelectorAll('svg g[role="button"][data-package-id]')];return ns.map(n=>{const r=n.querySelector(':scope > rect'),c=n.querySelector(':scope > circle');const t=n.transform.baseVal.consolidate().matrix;const b=n.getBBox();return {id:n.getAttribute('data-node-id')||n.getAttribute('aria-label'),shape:r?'title':c?'dot':'unknown',x:t.e+t.a*(r?+r.getAttribute('x')+(+r.getAttribute('width'))/2:+c.getAttribute('cx')),y:t.f+t.d*(r?+r.getAttribute('y')+(+r.getAttribute('height'))/2:+c.getAttribute('cy')),w:b.width,h:b.height};});})()`);
+  const snapshot=()=>evaluate(`(()=>{const ns=[...document.querySelectorAll('svg g[role="button"][data-package-id]')];return ns.map(n=>{const r=n.querySelector(':scope [data-node-paint] > rect'),c=n.querySelector(':scope [data-node-paint] > circle');const t=n.transform.baseVal.consolidate().matrix;const p=window.__graphQA.read(n),b=p.shape.getBBox();return {id:n.getAttribute('data-node-id')||n.getAttribute('aria-label'),shape:r?'title':c?'dot':'unknown',x:t.e+t.a*(r?+r.getAttribute('x')+(+r.getAttribute('width'))/2:+c.getAttribute('cx')),y:t.f+t.d*(r?+r.getAttribute('y')+(+r.getAttribute('height'))/2:+c.getAttribute('cy')),w:b.width,h:b.height};});})()`);
   const nodeSelector='svg g[role="button"][data-package-id]';
   const move=async(x,y)=>page.call('Input.dispatchMouseEvent',{type:'mouseMoved',x,y});
-  const center=selector=>evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});const r=(n.querySelector(':scope > circle')||n.querySelector(':scope > rect')||n).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+  const center=selector=>evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});const r=(n.querySelector(':scope [data-node-paint] > circle')||n.querySelector(':scope [data-node-paint] > rect')||n).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
   if (process.argv.includes('--near-titles')) {
     const { verifyGraphNearTitles } = await import('./test-graph-near-titles-browser.mjs');
     await verifyGraphNearTitles({ evaluate, wait, screenshot, page, evidence });
@@ -135,19 +137,19 @@ try {
     // Content fitting may now legitimately start above the title threshold.
     // Explicitly establish low zoom instead of mistaking fit<=1 for a contract.
     const lowZoomAt=await evaluate(`(()=>{const r=document.getElementById('snl-graph-background').getBoundingClientRect();return {x:r.x+10,y:r.y+10};})()`);
-    for(let i=0;i<35&&await evaluate(`document.querySelectorAll('${nodeSelector} > circle').length<8`);i++){
+    for(let i=0;i<35&&await evaluate(`document.querySelectorAll('${nodeSelector} [data-node-paint] > circle').length<8`);i++){
       await page.call('Input.dispatchMouseEvent',{type:'mouseWheel',...lowZoomAt,deltaX:0,deltaY:80});await sleep(20);
     }
     const before=await snapshot();assert.equal(before.length,8);assert.ok(before.every(n=>Number.isFinite(n.x)&&Number.isFinite(n.y)));
     assert.ok(before.some(n=>n.shape==='dot'),'auto low zoom must display dots');
     const pos=await center(nodeSelector);await move(pos.x,pos.y);
-    await wait(`document.querySelectorAll('${nodeSelector} > rect').length>=1`);
+    await wait(`document.querySelectorAll('${nodeSelector} [data-node-paint] > rect').length>=1`);
     const hovered=await snapshot();
     const anchorMap=Object.fromEntries(before.map(n=>[n.id,[n.x,n.y]]));
     assert.ok(hovered.every(n=>Math.hypot(n.x-anchorMap[n.id][0],n.y-anchorMap[n.id][1])<0.001),'hover must not move layout anchors');
     await move(10,10);await sleep(80);
     evidence[mode+' pointerLeave']=await evaluate(`({events:window.__pointerTrace,active:document.activeElement?.getAttribute('data-node-id'),titles:[...document.querySelectorAll('[data-node-shape="title"]')].map(n=>n.dataset.nodeId)})`);
-    await wait(`document.querySelectorAll('${nodeSelector} > circle').length===8`);
+    await wait(`document.querySelectorAll('${nodeSelector} [data-node-paint] > circle').length===8`);
     // Focus must reveal a title even after the mouse moves away.
     await evaluate(`document.querySelector('${nodeSelector}').focus()`);await sleep(40);
     evidence[mode+' focus']=await evaluate(`({active:document.activeElement?.getAttribute('data-node-id'),titles:[...document.querySelectorAll('[data-node-shape="title"]')].map(n=>n.dataset.nodeId)})`);
@@ -180,7 +182,7 @@ try {
       await sleep(30);
     }
     await move(10,10);
-    await wait(`document.querySelectorAll('${nodeSelector} > rect').length>0`);
+    await wait(`document.querySelectorAll('${nodeSelector} [data-node-paint] > rect').length>0`);
     assert.ok((await snapshot()).some(n=>n.shape==='title'),'zoom alone reveals near titles (far nodes remain dots)');
     const afterZoom=await snapshot();assert.ok(afterZoom.every(n=>Math.hypot(n.x-anchorMap[n.id][0],n.y-anchorMap[n.id][1])<0.001),'zoom must not relayout');
   }
@@ -194,10 +196,10 @@ try {
   await evaluate(`document.querySelector('input[type="range"]').focus()`);
   await key('Home',36);
   await wait(`document.querySelector('input[type="range"]').value==='20'`);
-  await wait(`document.querySelectorAll('${nodeSelector} > rect').length===8`);
+  await wait(`document.querySelectorAll('${nodeSelector} [data-node-paint] > rect').length===8`);
   await key('End',35);
   await wait(`document.querySelector('input[type="range"]').value==='300'`);
-  await wait(`document.querySelectorAll('${nodeSelector} > circle').length===8`);
+  await wait(`document.querySelectorAll('${nodeSelector} [data-node-paint] > circle').length===8`);
   evidence.thresholdKeyboard={minimum:20,maximum:300,titleAndDotTransitions:true};
   // Ordinary selection and Ctrl navigation still use the production handlers.
   const hit=await center(nodeSelector);await move(hit.x,hit.y);
@@ -211,7 +213,7 @@ try {
     await evaluate(`window.dispatchEvent(new MessageEvent('message',{data:{type:'snl.preferences/snapshot',generation:'browser-qa',revision:${revision},preferences:{language:${JSON.stringify(language)},color_scheme:${JSON.stringify(scheme)},motion:'none',popover_hover_enabled:false}}}))`);
     await selection('Outward|向外','Outward|向外');
     await selection('Always|始终','Always|始终');
-    const fill=await evaluate(`document.querySelector('${nodeSelector} > rect').getAttribute('fill')`);
+    const fill=await evaluate(`window.__graphQA.read(document.querySelector('${nodeSelector}')).shape.getAttribute('fill')`);
     assert.equal(fill,scheme==='light'?'#e9f2fc':'#22384f');
     if(language==='zh-CN')assert.ok((await evaluate(`document.body.innerText`)).includes('向外环铺'));
     await screenshot('theme-'+scheme);
@@ -227,14 +229,14 @@ try {
   evidence.largeLibrary.outwardReadyMs=Date.now()-largeStart;
   assert.ok((await snapshot()).every(n=>Number.isFinite(n.x)&&Number.isFinite(n.y)));
   await screenshot('large-library-outward');
-  evidence.largeLibrary.smallestDot=await evaluate(`Math.min(...[...document.querySelectorAll('${nodeSelector} > circle')].map(n=>n.getBoundingClientRect().width))`);
+  evidence.largeLibrary.smallestDot=await evaluate(`Math.min(...[...document.querySelectorAll('${nodeSelector} [data-node-paint] > circle')].map(n=>n.getBoundingClientRect().width))`);
   evidence.largeLibrary.overviewScale=await evaluate(`document.getElementById('snl-graph-background').closest('svg').querySelector(':scope > g[transform]').transform.baseVal.consolidate().matrix.a`);
   assert.ok(Math.abs(evidence.largeLibrary.smallestDot-24*evidence.largeLibrary.overviewScale)<0.001,'overview dots scale with the graph, without a pixel floor');
   // Subpixel corpus dots deliberately have no minimum hit footprint. Real
   // pointer entry is covered above/--scale; keyboard access remains available.
   await evaluate(`document.querySelector('${nodeSelector}').focus()`);
-  await wait(`document.querySelectorAll('${nodeSelector} > rect').length>=1`);
-  evidence.largeLibrary.hoverCardHeight=await evaluate(`Math.max(...[...document.querySelectorAll('${nodeSelector} > rect')].map(n=>n.getBoundingClientRect().height))`);
+  await wait(`document.querySelectorAll('${nodeSelector} [data-node-paint] > rect').length>=1`);
+  evidence.largeLibrary.hoverCardHeight=await evaluate(`Math.max(...[...document.querySelectorAll('${nodeSelector} [data-node-paint] > rect')].map(n=>window.__graphQA.read(n.closest('[data-node-id]')).screenRect.height))`);
   assert.ok(Math.abs(evidence.largeLibrary.hoverCardHeight-66*evidence.largeLibrary.overviewScale)<0.001,'active overview title retains world size');
   await screenshot('large-library-focus');await evaluate('document.activeElement.blur()');await move(10,10);
   await page.call('Emulation.setDeviceMetricsOverride',{width:430,height:850,deviceScaleFactor:1,mobile:false});
@@ -245,6 +247,7 @@ try {
   await evaluate(`window.dispatchEvent(new MessageEvent('message',{data:{...window.__fixture,nodes:[],edges:[]}}))`);
   await wait(`document.querySelectorAll('${nodeSelector}').length===0`);
   }
+  evidence.nativePaintFinal=await evaluate('window.__graphQA.audit()');
   evidence.errors=page.events.filter(e=>e.method==='Runtime.exceptionThrown'||(e.method==='Log.entryAdded'&&e.params.entry.level==='error'));
   assert.deepEqual(evidence.errors,[],'browser errors');
   evidence.success = true;

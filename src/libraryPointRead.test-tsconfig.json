@@ -1,0 +1,6 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "noEmit": true },
+  "include": ["entryIdentityIndex.test.ts", "libraryPointRead.test.ts", "libraryDependencyClosure.test.ts", "libraryPointRead.parity.test.ts"],
+  "exclude": []
+}

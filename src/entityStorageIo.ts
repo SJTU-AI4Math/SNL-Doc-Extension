@@ -491,6 +491,39 @@ export function assertCurrentEntityFile(path: string, value: unknown): void {
   throw new Error(`${path} is not a managed split-entity path.`);
 }
 
+/** Strict single-name read; never enumerates Macro bodies. I/O errors propagate. */
+export async function readMacroEntityRecord(
+  storage: EntityReadStorage, packageId: string, name: string
+): Promise<MacroEntityRecord | null> {
+  const path = macroEntityPath(packageId, name);
+  const value = await storage.readJson(path);
+  if (value === null) return null;
+  try {
+    const record = validateMacroEntity(path, value, '11');
+    // The whole Host additionally runs normalizeCurrentMacros -> validateMacro.
+    // Its mode comparisons are strict; migration validation alone coerces mode
+    // with String(). Keep this read-only parity gate out of shared write domains.
+    for (const style of record.macro.styles as Array<{ template: Record<string, unknown> }>) {
+      const template = style.template;
+      const projections = template.type === 'i18n'
+        ? Object.values(template.values as Record<string, Record<string, unknown>>)
+        : [template];
+      for (const projection of projections) {
+        if (projection.mode !== 'formula_inline' && projection.mode !== 'formula_display' &&
+            projection.mode !== 'text' && projection.mode !== 'block') {
+          throw new Error(`${path} Macro template projection has an invalid mode.`);
+        }
+      }
+    }
+    if (record.envelope.package !== packageId || record.macro.name !== name) {
+      throw new Error(`${path} Macro identity does not match the requested identity.`);
+    }
+    return record;
+  } catch (error) {
+    throw new EntityStorageValidationError(error instanceof Error ? error.message : String(error));
+  }
+}
+
 export async function readMacroEntityRecords(
   storage: EntityReadStorage,
   schemaVersion: '8' | '9' | '10' | '11' = '11'

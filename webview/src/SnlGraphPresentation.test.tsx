@@ -38,6 +38,37 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); document.documentElement.lang = ''; });
 
 describe('adaptive graph presentation', () => {
+  it('keeps native targets attached and ordered across hover, focus and dot/title transitions', () => {
+    render(<SnlGraphApp />); send();
+    const a = node(), parent = a.parentElement!;
+    const order = [...parent.children];
+    const observer = new MutationObserver(() => {});
+    observer.observe(parent, { childList: true });
+    fireEvent.pointerEnter(a);
+    expect([...parent.children].every((child, index) => child === order[index])).toBe(true);
+    expect(observer.takeRecords().some(record => [...record.removedNodes].some(removed => removed === a))).toBe(false);
+    const hit = a.querySelector('[data-node-hit]');
+    expect(hit).not.toBeNull();
+    act(() => { (a as unknown as SVGGElement).focus(); });
+    fireEvent.pointerLeave(a);
+    expect(document.activeElement).toBe(a);
+    expect(a.querySelector('[data-node-hit]')).toBe(hit);
+    act(() => { (a as unknown as SVGGElement).blur(); });
+    expect(a.getAttribute('data-node-shape')).toBe('dot');
+    expect(a.querySelector('[data-node-hit]')).toBe(hit);
+    control('Nodes', 'always-title');
+    fireEvent.pointerEnter(a);
+    expect([...parent.children].every((child, index) => child === order[index])).toBe(true);
+    expect(observer.takeRecords().some(record => [...record.removedNodes].some(removed => removed === a))).toBe(false);
+    observer.disconnect();
+    const raised = document.querySelector('[data-node-raise="a"]')!;
+    expect(raised).not.toBeNull();
+    expect(raised.getAttribute('href')).toBe(`#${a.querySelector('[data-node-paint]')!.id}`);
+    expect(raised.closest('[aria-hidden="true"]')?.getAttribute('pointer-events')).toBe('none');
+    expect(screen.getAllByRole('button', { name: /^Entry / })).toHaveLength(3);
+    fireEvent.click(hit!, { ctrlKey: true });
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'openEntryInfoview', entryId: 'a' });
+  });
   it.each(['rectangle', 'radial-outward', 'radial-inward'])('%s scales dots, outlines and active cards in world units', mode => {
     render(<SnlGraphApp />); send(); control('Layout', mode);
     const svg = document.getElementById('snl-graph-background')!.closest('svg')!;
@@ -106,7 +137,7 @@ describe('adaptive graph presentation', () => {
     fireEvent.pointerEnter(node());
     fireEvent.pointerLeave(node());
     expect(node().querySelector('rect')).not.toBeNull();
-    expect(node().parentElement!.lastElementChild).toBe(node());
+    expect(document.querySelector('[data-node-raised-paint]')!.lastElementChild?.querySelector('use')?.getAttribute('data-node-raise')).toBe('a');
     fireEvent.blur(node());
     expect(node().querySelector('circle')).not.toBeNull();
     fireEvent.pointerEnter(node('b'));

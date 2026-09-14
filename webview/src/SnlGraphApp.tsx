@@ -451,6 +451,7 @@ function SnlGraphInner({
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
   const capabilities = useReaderCapabilities();
+  const nodePaintId = React.useId();
   const { edit } = capabilities;
   const contentLanguage = use_content_language();
   const preferencesRevision = use_preferences_revision();
@@ -779,8 +780,11 @@ function SnlGraphInner({
       (nodeMode === 'always-title' || vp.scale >= titleThreshold / 100 || hoverNodeId === id || focusNodeId === id)
       ? 'title' : 'dot';
   };
-  // Stable keys preserve DOM/focus while raised cards paint above dots. Hover
-  // and keyboard focus remain separate so leaving either doesn't clear both.
+  // Native click/focus identity must never move with paint priority: Chromium
+  // can lose compatibility mousedown/click if React reorders a keyed SVG group
+  // between pointerdown and mousedown. Raise pointer-transparent paint only.
+  const nodeTitleElements = new Map<string, React.ReactElement>();
+  const nodePaintIndexes = new Map(laid.nodes.map((node, index) => [node.id, index]));
   const paintedNodes = [...laid.nodes].sort((a, b) =>
     (Number(nodeShape(a.id) === 'title') + Number(a.id === hoverNodeId || a.id === focusNodeId)) -
     (Number(nodeShape(b.id) === 'title') + Number(b.id === hoverNodeId || b.id === focusNodeId)));
@@ -1151,7 +1155,7 @@ function SnlGraphInner({
                 );
               })}
               {/* Nodes */}
-              {paintedNodes.map((n) => {
+              {laid.nodes.map((n, index) => {
                 const presentation = nodesById.get(n.id)!;
                 const isHovered = hoverNodeId === n.id;
                 const isSelected = selectedId === n.id;
@@ -1164,6 +1168,34 @@ function SnlGraphInner({
                 const fill = graphNodeFill(overrideFill ?? paint.background, highlighted);
                 const textColor = overrideFill ? graphTagTextColor(overrideFill) : stroke;
                 const titleHtml = showTitle ? renderTitleKatex(n.title) : '';
+                if (showTitle) nodeTitleElements.set(n.id, (
+                    <foreignObject
+                      x={15}
+                      y={30}
+                      width={n.w - 30}
+                      height={n.h - 33}
+                      style={{ pointerEvents: 'none' }}
+                    >
+                      <div
+                        style={{
+                          fontSize: '19.5px',
+                          fontWeight: 600,
+                          color: textColor,
+                          lineHeight: '30px',
+                          overflow: 'hidden',
+                          whiteSpace: 'nowrap',
+                          textOverflow: 'ellipsis'
+                        }}
+                        dangerouslySetInnerHTML={{ __html: titleHtml }}
+                      />
+                    </foreignObject>
+                ));
+                const radius = showTitle ? CARD_RADIUS : presentation.dotRadius;
+                const hitX = showTitle ? 0 : n.w / 2 - radius;
+                const hitY = showTitle ? 0 : n.h / 2 - radius;
+                const hitW = showTitle ? n.w : radius * 2;
+                const hitH = showTitle ? n.h : radius * 2;
+                const hitPath = `M ${hitX + radius} ${hitY} h ${hitW - 2 * radius} a ${radius} ${radius} 0 0 1 ${radius} ${radius} v ${hitH - 2 * radius} a ${radius} ${radius} 0 0 1 ${-radius} ${radius} h ${2 * radius - hitW} a ${radius} ${radius} 0 0 1 ${-radius} ${-radius} v ${2 * radius - hitH} a ${radius} ${radius} 0 0 1 ${radius} ${-radius} Z`;
                 return (
                   <g
                     key={n.id}
@@ -1195,6 +1227,11 @@ function SnlGraphInner({
                     {/* Cat 2026-07-10 §3: dropped the native <title>
                         tooltip — the full-Entry hover popover already
                         carries every fact this used to duplicate. */}
+                    {/* Titles paint once via the raised use, not twice (which
+                        would compound translucent Kind fills). The opacity is
+                        outside the referenced subtree; its geometry stays live. */}
+                    <g opacity={showTitle ? 0 : 1} pointerEvents="none">
+                    <g id={`${nodePaintId}-${index}`} data-node-paint="" pointerEvents="none">
                     {showTitle ? <>
                     <rect
                       width={n.w}
@@ -1219,31 +1256,29 @@ function SnlGraphInner({
                         KaTeX (LaTeX text-mode fragment). Uses
                         foreignObject to embed KaTeX HTML output inside
                         the SVG — KaTeX SVG output isn't a stable API. */}
-                    <foreignObject
-                      x={15}
-                      y={30}
-                      width={n.w - 30}
-                      height={n.h - 33}
-                      style={{ pointerEvents: 'none' }}
-                    >
-                      <div
-                        style={{
-                          fontSize: '19.5px',
-                          fontWeight: 600,
-                          color: textColor,
-                          lineHeight: '30px',
-                          overflow: 'hidden',
-                          whiteSpace: 'nowrap',
-                          textOverflow: 'ellipsis'
-                        }}
-                        dangerouslySetInnerHTML={{ __html: titleHtml }}
-                      />
-                    </foreignObject>
                     </> : <circle cx={n.w / 2} cy={n.h / 2} r={presentation.dotRadius}
                       fill={fill} stroke={stroke} strokeWidth={highlighted ? 3.5 : 2} />}
+                    </g>
+                    {nodeTitleElements.get(n.id)}
+                    </g>
+                    {/* One native hit child survives dot/card changes as well as
+                        metadata-only hover. Paint never intercepts its events. */}
+                    <path data-node-hit="" d={hitPath} fill="transparent" pointerEvents="all" />
                   </g>
                 );
               })}
+              <g data-node-raised-paint="" aria-hidden="true" pointerEvents="none">
+                {paintedNodes.filter(n => nodeShape(n.id) === 'title').map(n => {
+                  const presentation = nodesById.get(n.id)!;
+                  // Chromium does not paint foreignObject through SVG use.
+                  // Reuse the already-compiled near-title element as decorative
+                  // HTML paint; never clone the focusable group or hit target.
+                  return <g key={n.id} transform={`translate(${presentation.x} ${presentation.y}) scale(${presentation.presentationScale})`}>
+                    <use data-node-raise={n.id} href={`#${nodePaintId}-${nodePaintIndexes.get(n.id)}`} />
+                    {nodeTitleElements.get(n.id)}
+                  </g>;
+                })}
+              </g>
             </g>
             {/* Screen-space overlay: anchors pan/zoom with the package, but
                 glyphs remain 12px and paint above cards without intercepting input. */}

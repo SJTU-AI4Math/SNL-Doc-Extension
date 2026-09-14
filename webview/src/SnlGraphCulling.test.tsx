@@ -111,7 +111,10 @@ describe('larger near-viewport graph titles', () => {
       expect(group.isConnected).toBe(true);
       expect(group.getAttribute('tabindex')).toBe('0');
       expect(group.getAttribute('aria-label')).toContain('Entry Title');
-      expect([...group.children].map(child => child.tagName)).toEqual(['circle']);
+      expect(group.querySelectorAll('circle')).toHaveLength(1);
+      expect(group.querySelectorAll('[data-node-hit]')).toHaveLength(1);
+      expect(group.querySelector('rect, foreignObject, text')).toBeNull();
+      expect(document.querySelector(`[data-node-raise="${group.getAttribute('data-node-id')}"]`)).toBeNull();
     }
     const moved = viewport(); resize(); expect(viewport()).toEqual(moved);
     expect(observers).toHaveLength(1); // presentation never re-runs layout/fit ownership

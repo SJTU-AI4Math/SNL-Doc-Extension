@@ -151,7 +151,16 @@ try {
         await nodes.first().waitFor(); assert.equal(await nodes.count(), 4);
         await page.getByRole('button', { name: /◀ Filters/ }).click();
         const atomic = page.getByLabel('atomic deps only', { exact: true }); assert(await atomic.isChecked());
-        const edges = page.locator('svg [aria-label^="Relationship "]'); assert.equal(await edges.count(), 3);
+        const edges = page.locator('svg [aria-label^="Relationship "]');
+        const showRelationships = page.getByLabel('Show relationships', { exact: true });
+        assert.equal(await showRelationships.isChecked(), false);
+        assert.equal(await edges.count(), 0, 'default-off paint must not construct relationship DOM');
+        await atomic.uncheck();
+        assert.equal(await edges.count(), 0, 'atomic filtering must not enable relationship paint');
+        await atomic.check();
+        await showRelationships.check();
+        await page.waitForFunction(() => document.querySelectorAll('svg [aria-label^="Relationship "]').length === 3);
+        assert.equal(await edges.count(), 3);
         await atomic.uncheck(); assert.equal(await edges.count(), 4);
         await page.getByRole('button', { name: 'none', exact: true }).click(); assert.equal(await nodes.count(), 0);
         await page.getByRole('button', { name: 'all', exact: true }).click(); await nodes.first().waitFor(); assert.equal(await nodes.count(), 4);
@@ -172,6 +181,65 @@ try {
         await page.waitForFunction(() => location.hash.startsWith('#/entry/Beta'));
         await back(); await nodes.first().waitFor();
         await page.reload(); await nodes.first().waitFor(); assert((await hash()).startsWith('#/graph'));
+      });
+      await step('graph-native-first-move-click-and-keyboard', async () => {
+        const beta = page.getByRole('button', { name: 'Entry Beta source (Beta)', exact: true });
+        for (const mode of ['always-title', 'auto']) {
+          await page.getByLabel('Nodes', { exact: true }).selectOption(mode);
+          await page.getByRole('slider', { name: 'Title threshold' }).press('End');
+          await page.mouse.move(5, 5);
+          assert.equal(await beta.getAttribute('data-node-shape'), mode === 'auto' ? 'dot' : 'title');
+          await beta.evaluate(group => {
+            const hit = group.querySelector('[data-node-hit]');
+            window.__nativeGraphEvents = [];
+            for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+              group.addEventListener(type, event => window.__nativeGraphEvents.push({
+                type, stableHit: event.target === hit, ctrl: event.ctrlKey
+              }));
+            }
+          });
+          const box = await beta.boundingBox();
+          await page.keyboard.down('Control');
+          // Raw input: one first move + immediate down/up. No hover, delay,
+          // locator actionability retry or wait between arrival and click.
+          await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+          await page.keyboard.up('Control');
+          await page.waitForFunction(() => location.hash.startsWith('#/entry/Beta'));
+          assert.deepEqual(await page.evaluate(() => window.__nativeGraphEvents),
+            ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].map(type => ({ type, stableHit: true, ctrl: true })));
+          writeFileSync(resolve(out, `${shape}-${protocol}-native-${mode}.json`), JSON.stringify(await page.evaluate(() => ({ hash: location.hash, events: window.__nativeGraphEvents })), null, 2));
+          await back(); await beta.waitFor();
+        }
+        await page.getByLabel('Nodes', { exact: true }).selectOption('always-title');
+        await page.mouse.move(5, 5);
+        const box = await beta.boundingBox();
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        assert((await hash()).startsWith('#/graph'));
+        await page.getByText(/selected: Beta source/).waitFor();
+        await page.mouse.move(5, 5);
+        assert(await beta.evaluate(group => document.activeElement === group));
+        const next = await beta.evaluate(group => {
+          const nodes = [...group.parentElement.querySelectorAll('[data-node-id]')];
+          return nodes[nodes.indexOf(group) + 1].getAttribute('data-node-id');
+        });
+        await page.keyboard.press('Tab');
+        assert.equal(await page.evaluate(() => document.activeElement.getAttribute('data-node-id')), next);
+        await page.keyboard.press('Control+Enter');
+        await page.waitForFunction(id => location.hash.startsWith('#/entry/' + id), next);
+        await back(); await beta.waitFor();
+        await page.getByLabel('Nodes', { exact: true }).selectOption('always-title');
+        // The raised HTML is actual paint, not a foreignObject inside SVG use
+        // (Chromium silently omits that). Its hidden source is not the oracle.
+        const paintedTitle = page.locator('[data-node-raised-paint] > g').filter({ hasText: 'Beta' }).locator('foreignObject');
+        assert.equal(await paintedTitle.count(), 1);
+        assert(await paintedTitle.evaluate(element => {
+          for (let n = element; n; n = n.parentElement) {
+            const style = getComputedStyle(n);
+            if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+          }
+          return element.getBoundingClientRect().width > 0;
+        }));
+        await page.screenshot({ path: resolve(out, `${shape}-${protocol}-native-click.png`) });
       });
       if (await page.evaluate(() => Boolean(window.__snlSources))) await step('reused-source-document-sync', async () => {
         await page.getByRole('button', { name: 'SNoogL', exact: true }).click();

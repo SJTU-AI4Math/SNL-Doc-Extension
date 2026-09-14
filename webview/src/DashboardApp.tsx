@@ -27,12 +27,13 @@ import React, { useEffect, useState } from 'react';
 import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
 import type { ThemedKindColoring } from '../../src/kindColoring';
 import { Button } from './components/Button';
-import { IconButton } from './components/IconButton';
 import { Icon } from './components/Icon';
 import { EmptyAction } from './components/EmptyAction';
 import { PanelHeader } from './components/PanelHeader';
 import { KindPreview } from './components/KindPreview';
-import { RowPrimaryButton } from './components/RowPrimaryButton';
+import { LibrariesTable, type LibrarySummary } from './components/LibrariesTable';
+import { CELL, HEAD, MONO, ClickableRow, RowDeleteCell } from './components/dashboardTablePrimitives';
+import { DASHBOARD_MESSAGES } from './i18n/dashboardMessages';
 import { shouldStopRowActivation } from './components/interactionModel';
 import {
   useVsCodeApiRef,
@@ -41,48 +42,8 @@ import {
 } from './vscodeApi';
 import { use_content_language, use_preferences_revision } from './runtime/preferencesRuntime';
 import { resolve_localized_string } from '../../src/localizedContent';
-import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
+import { useUiMessages } from './i18n/uiMessages';
 
-const DASHBOARD_MESSAGES = defineUiMessages(
-  'dashboard',
-  {
-    title: 'SNL Dashboard', loading: 'Loading project overview…', overviewLoadError: 'Could not load project overview: {message}', setupIntroBefore: 'This workspace does not have an', setupIntroAfter: 'folder yet. Create the skeleton alone, or initialize a standard Kind catalog as part of setup.',
-    runInit: 'Run SNL: Init', initEntryKinds: 'Initialize Entry Kinds', initMacroKinds: 'Initialize Macro Kinds', entryKindPreset: 'Entry Kind preset', macroKindPreset: 'Macro Kind preset', emptyPreset: 'Empty', setupStatus: 'SNL setup status', initializing: 'Initializing SNL workspace…',
-    viewGraph: 'View Graph', viewGraphTitle: 'Open the pool-wide relationship graph', openInfoview: 'Open Infoview →', openInfoviewTitle: 'Open the Infoview (reading surface)',
-    maintainPointers: 'Pointer maintenance', maintainPointersTitle: 'Maintain all Entry Pointers in this workspace',
-    dataMaintenance: 'Data maintenance', dataNotChecked: 'Data version has not been checked yet.', unknown: 'unknown', checkData: 'Check data', repairData: 'Repair / migrate data', pendingMigrations: '{count} pending migration step(s).', migrationRunning: 'Migration is running…', checkRunning: 'Data check is running…', dataFailed: 'Data operation failed.',
-    libraries: 'Libraries', libraryCount: { arg: 'count', one: '{count} library', other: '{count} libraries' }, createLibrary: 'Create Library', createLibraryHeader: '+ Create Library', createLibraryTitle: 'Open the Create Library panel',
-    entries: 'Entry Packages', entriesInPool: '{count} entries in shared pool', entryPackageCount: { arg: 'count', one: '{count} Entry Package', other: '{count} Entry Packages' }, createEntry: 'Create Entry Package', createEntryHeader: '+ Create Entry Package', createEntryTitle: 'Open the Create Entry Package flow', entrySearch: '⌕ SNoogL: Entry Search', entrySearchTitle: 'Open SNoogL panel focused on entry search',
-    relationships: 'Relationships', edgeCount: { arg: 'count', one: '{count} edge', other: '{count} edges' }, createRelationship: 'Create Relationship', regenerateDependencies: '⚙ Regenerate Dependencies from Macro Sources',
-    macros: 'SNL Macros', packageCount: { arg: 'count', one: '{count} package', other: '{count} packages' }, createMacroHeader: '+ Create Macro', createMacroTitle: 'Pick a package and open the Create Macro editor', macroSearch: '⌕ SNoogL: Macro Search', macroSearchTitle: 'Open SNoogL panel focused on macro search', addPackage: 'Add Package',
-    entryKinds: 'Entry Kinds', kindCount: { arg: 'count', one: '{count} kind', other: '{count} kinds' }, createEntryKind: 'Create Entry Kind', macroKinds: 'SNL Macro Kinds', createMacroKind: 'Create Macro Kind',
-    colTitle: 'Title', colSlug: 'Slug', colEntries: 'Entries', colRelationships: 'Relationships', colActive: 'Active', colFile: 'File', colMacros: 'Macros', colPreview: 'Preview', colName: 'Name', colId: 'ID', colDefaultCounter: 'Default Counter', colStyle: 'Style', colDescription: 'Description', colKind: 'Kind', colFormats: 'Formats', colStructuralIndex: 'SNL Structural Index', colFrom: 'From', colTo: '→ To', colLabel: 'Label', colMetadata: 'Metadata',
-    editLibrary: 'Edit library {id}', deleteLibrary: 'Delete library {id}', openPackage: 'Open macro package {id}', togglePackage: 'Toggle active state for {id}', activePackageTitle: 'Active — contributes macros to the workspace', inactivePackageTitle: 'Inactive — excluded from readAllMacros', deletePackage: 'Delete macro package {id}',
-    editEntryKind: 'Edit entry kind {id}', deleteEntryKind: 'Delete entry kind {id}', editMacroKind: 'Edit macro kind {id}', deleteMacroKind: 'Delete macro kind {id}', colorTitle: 'stroke {stroke} / background {background}', openEntryPackage: 'Open Entry Package {id}', editEntry: 'Edit entry {title}', deleteEntry: 'Delete entry {id}', unknownKindTitle: 'Unknown kind “{kind}” — no matching entry kind in config.json', unknownKind: '⚠ unknown', editRelationship: 'Edit relationship {id}', deleteRelationship: 'Delete relationship {id}', missingEndpoint: 'No entry with id “{id}” in the shared pool. The endpoint was likely deleted.', untitled: '(untitled)', unserializable: '(unserializable)'
-  },
-  {
-    title: 'SNL 仪表板', loading: '正在加载项目概览…', overviewLoadError: '无法加载项目概览：{message}', setupIntroBefore: '此工作区尚无', setupIntroAfter: '文件夹。您可以仅创建基本目录，也可以在设置时一并初始化标准类别目录。',
-    runInit: '运行 SNL：初始化', initEntryKinds: '初始化条目类别', initMacroKinds: '初始化宏类别', entryKindPreset: '条目类别预设', macroKindPreset: '宏类别预设', emptyPreset: '空', setupStatus: 'SNL 设置状态', initializing: '正在初始化 SNL 工作区…',
-    viewGraph: '查看关系图', viewGraphTitle: '打开共享池的完整关系图', openInfoview: '打开信息视图 →', openInfoviewTitle: '打开信息视图（阅读界面）',
-    maintainPointers: 'Pointer 维护', maintainPointersTitle: '维护此工作区中的所有条目 Pointer',
-    dataMaintenance: '数据维护', dataNotChecked: '尚未检查数据版本。', unknown: '未知', checkData: '检查数据', repairData: '修复 / 迁移数据', pendingMigrations: '有 {count} 个迁移步骤待执行。', migrationRunning: '正在迁移…', checkRunning: '正在检查数据…', dataFailed: '数据操作失败。',
-    libraries: '库', libraryCount: { arg: 'count', other: '{count} 个库' }, createLibrary: '创建库', createLibraryHeader: '+ 创建库', createLibraryTitle: '打开创建库面板',
-    entries: '条目包', entriesInPool: '共享池中有 {count} 个条目', entryPackageCount: { arg: 'count', other: '{count} 个条目包' }, createEntry: '创建条目包', createEntryHeader: '+ 创建条目包', createEntryTitle: '打开创建条目包流程', entrySearch: '⌕ SNoogL：搜索条目', entrySearchTitle: '打开 SNoogL 面板并搜索条目',
-    relationships: '关系', edgeCount: { arg: 'count', other: '{count} 条边' }, createRelationship: '创建关系', regenerateDependencies: '⚙ 根据宏来源重新生成依赖关系',
-    macros: 'SNL 宏', packageCount: { arg: 'count', other: '{count} 个宏包' }, createMacroHeader: '+ 创建宏', createMacroTitle: '选择宏包并打开创建宏编辑器', macroSearch: '⌕ SNoogL：搜索宏', macroSearchTitle: '打开 SNoogL 面板并搜索宏', addPackage: '添加宏包',
-    entryKinds: '条目类别', kindCount: { arg: 'count', other: '{count} 个类别' }, createEntryKind: '创建条目类别', macroKinds: 'SNL 宏类别', createMacroKind: '创建宏类别',
-    colTitle: '标题', colSlug: '标识名', colEntries: '条目数', colRelationships: '关系数', colActive: '启用', colFile: '文件', colMacros: '宏数', colPreview: '预览', colName: '名称', colId: 'ID', colDefaultCounter: '默认计数器', colStyle: '样式', colDescription: '说明', colKind: '类别', colFormats: '格式', colStructuralIndex: 'SNL 结构指数', colFrom: '起点', colTo: '→ 终点', colLabel: '标签', colMetadata: '元数据',
-    editLibrary: '编辑库 {id}', deleteLibrary: '删除库 {id}', openPackage: '打开宏包 {id}', togglePackage: '切换 {id} 的启用状态', activePackageTitle: '已启用——向工作区提供宏', inactivePackageTitle: '未启用——不包含在 readAllMacros 中', deletePackage: '删除宏包 {id}',
-    editEntryKind: '编辑条目类别 {id}', deleteEntryKind: '删除条目类别 {id}', editMacroKind: '编辑宏类别 {id}', deleteMacroKind: '删除宏类别 {id}', colorTitle: '描边 {stroke} / 背景 {background}', openEntryPackage: '打开条目包 {id}', editEntry: '编辑条目 {title}', deleteEntry: '删除条目 {id}', unknownKindTitle: '未知类别“{kind}”——config.json 中没有匹配的条目类别', unknownKind: '⚠ 未知', editRelationship: '编辑关系 {id}', deleteRelationship: '删除关系 {id}', missingEndpoint: '共享池中没有 ID 为“{id}”的条目；该端点可能已被删除。', untitled: '（无标题）', unserializable: '（无法序列化）'
-  }
-);
-
-interface LibrarySummary {
-  slug: string;
-  title: string;
-  entryCount: number | null;
-  relationshipCount: number | null;
-}
 
 interface EntryPackageSummary {
   id: string;
@@ -820,73 +781,6 @@ function HeaderActionButton({
  */
 
 
- const CELL: React.CSSProperties = {
-  padding: '0.45rem 0.6rem',
-  borderBottom:
-    '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
-  textAlign: 'left',
-  verticalAlign: 'middle'
-};
-const HEAD: React.CSSProperties = { ...CELL, fontWeight: 600, opacity: 0.85 };
-const MONO: React.CSSProperties = {
-  fontFamily: 'var(--vscode-editor-font-family, monospace)',
-  opacity: 0.75
-};
-
-function LibrariesTable({
-  libraries,
-  onOpen,
-  onDelete
-}: {
-  libraries: LibrarySummary[];
-  onOpen: (slug: string) => void;
-  onDelete: (slug: string) => void;
-}): React.ReactElement {
-  const t = useUiMessages(DASHBOARD_MESSAGES);
-  return (
-    <table
-      style={{
-        width: '100%',
-        borderCollapse: 'collapse',
-        marginTop: '0.5rem',
-        fontSize: '0.95rem'
-      }}
-    >
-      <thead>
-        <tr>
-          <th style={HEAD}>{t('colTitle')}</th>
-          <th style={HEAD}>{t('colSlug')}</th>
-          <th style={{ ...HEAD, textAlign: 'right' }}>{t('colEntries')}</th>
-          <th style={{ ...HEAD, textAlign: 'right' }}>{t('colRelationships')}</th>
-          <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
-        </tr>
-      </thead>
-      <tbody>
-        {libraries.map((lib) => (
-          <ClickableRow
-            key={lib.slug}
-            label={t('editLibrary', { id: lib.slug })}
-            onActivate={() => onOpen(lib.slug)}
-            primaryCellIndex={0}
-          >
-            <td style={CELL}>{lib.title}</td>
-            <td style={{ ...CELL, ...MONO }}>{lib.slug}</td>
-            <td style={{ ...CELL, textAlign: 'right' }}>
-              {lib.entryCount === null ? '—' : lib.entryCount}
-            </td>
-            <td style={{ ...CELL, textAlign: 'right' }}>
-              {lib.relationshipCount === null ? '—' : lib.relationshipCount}
-            </td>
-            <RowDeleteCell
-              label={t('deleteLibrary', { id: lib.slug })}
-              onDelete={() => onDelete(lib.slug)}
-            />
-          </ClickableRow>
-        ))}
-      </tbody>
-    </table>
-  );
-}
 
 function MacroPackagesTable({
   packages,
@@ -958,99 +852,6 @@ function MacroPackagesTable({
   );
 }
 
-/**
- * Shared clickable-row wrapper. Clicking (or Enter/Space) fires `onActivate`;
- * hover / focus paint the row with the theme's list-hover background,
- * matching VS Code list affordances.
- */
-/**
- * Trash-icon cell for a Dashboard table row. Placed inside a
- * {@link ClickableRow} — stopPropagation is critical because the surrounding
- * row treats any click as "open this entity", and we absolutely do not want
- * clicking Delete to also open the editor for the doomed row.
- *
- * Cat 2026-07-09: every entity type (entry / library / entry-kind /
- * macro-kind / macro-package) grows a matching Delete action. The confirm
- * modal + reference reporting lives in extension.ts commands; here we just
- * post the intent.
- */
-function RowDeleteCell({
-  onDelete,
-  label
-}: {
-  onDelete: () => void;
-  label: string;
-}): React.ReactElement {
-  return (
-    <td
-      style={{ ...CELL, textAlign: 'right', width: '2.5rem' }}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <IconButton
-        icon="delete"
-        label={label}
-        variant="destructive"
-        size="sm"
-        title={label}
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
-        onKeyDown={(e) => {
-          // Prevent the surrounding ClickableRow's Enter/Space handler
-          // from firing when a user focuses this button via keyboard.
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.stopPropagation();
-          }
-        }}
-      />
-    </td>
-  );
-}
-
-function ClickableRow({
-  label,
-  onActivate,
-  primaryCellIndex,
-  children
-}: {
-  label: string;
-  onActivate: () => void;
-  primaryCellIndex: number;
-  children: React.ReactNode;
-}): React.ReactElement {
-  const [hover, setHover] = useState(false);
-  const cells = React.Children.toArray(children) as React.ReactElement<{
-    children?: React.ReactNode;
-  }>[];
-  const primaryCell = cells[primaryCellIndex];
-  if (primaryCell) {
-    cells[primaryCellIndex] = React.cloneElement(
-      primaryCell,
-      {},
-      <RowPrimaryButton label={label} onActivate={onActivate}>
-        {primaryCell.props.children}
-      </RowPrimaryButton>
-    );
-  }
-  return (
-    <tr
-      onClick={onActivate}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onFocus={() => setHover(true)}
-      onBlur={() => setHover(false)}
-      style={{
-        cursor: 'pointer',
-        background: hover
-          ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))'
-          : 'transparent'
-      }}
-    >
-      {cells}
-    </tr>
-  );
-}
 
 function EntryKindsTable({
   kinds,

@@ -46,6 +46,41 @@ describe('Dashboard Pointer maintenance', () => {
 });
 
 describe('Dashboard library actions', () => {
+  it.each([
+    ['en', 'Libraries', 'Edit library logic', 'Delete library logic', '+ Create Library', ['Title', 'Slug', 'Entries', 'Relationships', '']],
+    ['zh-CN', '库', '编辑库 logic', '删除库 logic', '+ 创建库', ['标题', '标识名', '条目数', '关系数', '']]
+  ] as const)('preserves library table labels, counts and independent edit/delete/create intents in %s', async (locale, section, edit, remove, create, headings) => {
+    document.documentElement.lang = locale;
+    try {
+      render(<DashboardApp />);
+      act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'overview', overview: {
+          hasSnlDoc: true, totalEntryCount: 0, entries: [], entryPackages: [],
+          libraries: [{ slug: 'logic', title: 'Logic', entryCount: 7, relationshipCount: 0 }, { slug: 'unknown', title: 'Unknown', entryCount: null, relationshipCount: null }],
+          macroPackages: [], allMacros: [], metricMacroSources: {}, relationships: [], entryKinds: [], macroKinds: []
+        }
+      }})));
+      fireEvent.click((await screen.findByText(section)).closest('button')!);
+      const editButton = screen.getByRole('button', { name: edit });
+      const table = editButton.closest('table')!;
+      expect(Array.from(table.querySelectorAll('th'), cell => cell.textContent)).toEqual(headings);
+      expect(Array.from(table.querySelectorAll('tbody tr:first-child td'), cell => cell.textContent)).toEqual(['Logic', 'logic', '7', '0', '']);
+      expect(Array.from(table.querySelectorAll('tbody tr:last-child td'), cell => cell.textContent)).toEqual(['Unknown', 'unknown', '—', '—', '']);
+      postMessage.mockClear();
+      fireEvent.click(editButton);
+      expect(postMessage.mock.calls).toEqual([[{ type: 'editLibrary', slug: 'logic' }]]);
+      postMessage.mockClear();
+      fireEvent.click(editButton.closest('tr')!.querySelectorAll('td')[1]);
+      expect(postMessage.mock.calls).toEqual([[{ type: 'editLibrary', slug: 'logic' }]]);
+      postMessage.mockClear();
+      fireEvent.click(screen.getByRole('button', { name: remove }));
+      expect(postMessage.mock.calls).toEqual([[{ type: 'deleteLibrary', slug: 'logic' }]]);
+      postMessage.mockClear();
+      fireEvent.click(screen.getByRole('button', { name: create }));
+      expect(postMessage.mock.calls).toEqual([[{ type: 'createLibrary' }]]);
+    } finally { document.documentElement.lang = 'en'; }
+  });
+
   it('shows localized Entry Kind names and descriptions without flattening the catalog', async () => {
     render(<DashboardApp />);
     window.dispatchEvent(new MessageEvent('message', { data: {

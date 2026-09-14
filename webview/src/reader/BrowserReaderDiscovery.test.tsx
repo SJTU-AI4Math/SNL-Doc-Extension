@@ -71,14 +71,14 @@ it('keeps local library identity through search, query edits, Entry Back and occ
   expect(new URLSearchParams(searchHash.split('?')[1]).get('library')).toBe('L');
   await click(visibleMain().querySelector('[role="option"]'));
   expect(new URLSearchParams(location.hash.split('?')[1]).get('library')).toBe('L');
-  await click(visibleMain().querySelector('button'));
+  await click(visibleMain().querySelector('.snl-panel-header button[aria-label="Back"]'));
   expect(location.hash).toBe(searchHash);
-  await click(visibleMain().querySelector('button'));
+  await click(visibleMain().querySelector('.snl-panel-header button[aria-label="Back"]'));
   expect(location.hash).toBe('#/node/second?library=L');
   // The Library's occurrence-return path must use the same contextual codec too.
   await click(Array.from(element.querySelectorAll('[data-snl-route-id="second"] *')).find(node => node.textContent === 'Alpha title') ?? null, true);
   expect(new URLSearchParams(location.hash.split('?')[1]).get('library')).toBe('L');
-  await click(visibleMain().querySelector('button'));
+  await click(visibleMain().querySelector('.snl-panel-header button[aria-label="Back"]'));
   expect(location.hash).toBe('#/node/second?library=L');
   await click(Array.from(element.querySelectorAll('nav button')).find(b => !b.closest('[hidden]') && b.getAttribute('aria-label') === 'Relationship graph') ?? null);
   expect(new URLSearchParams(location.hash.split('?')[1]).get('library')).toBe('L');
@@ -86,7 +86,7 @@ it('keeps local library identity through search, query edits, Entry Back and occ
   expect(element.textContent).not.toContain('frozen export');
   await click(visibleMain().querySelector('g[aria-label="Entry Beta title (Beta)"]'), true);
   expect(new URLSearchParams(location.hash.split('?')[1]).get('library')).toBe('L');
-  await click(visibleMain().querySelector('button'));
+  await click(visibleMain().querySelector('.snl-panel-header button[aria-label="Back"]'));
   expect(location.hash).toContain('#/graph?library=L');
 });
 
@@ -101,7 +101,7 @@ it('reads a Macro through real preview and exposes only exported source Entry na
   await click(sourceLink ?? null);
   expect(location.hash).toContain('#/entry/Beta');
   expect(visibleMain().textContent).toContain('Frozen source body');
-  await click(visibleMain().querySelector('button'));
+  await click(visibleMain().querySelector('.snl-panel-header button[aria-label="Back"]'));
   expect(location.hash).toContain('#/macro/symbol');
 });
 
@@ -119,7 +119,7 @@ it('mounts the shared semantic graph, filters real edges, and returns node readi
   expect(visibleMain().querySelectorAll('g[aria-label^="Relationship"]')).toHaveLength(2);
   await click(visibleMain().querySelector('g[aria-label="Entry Beta title (Beta)"]'), true);
   expect(location.hash).toContain('#/entry/Beta');
-  await click(visibleMain().querySelector('button'));
+  await click(visibleMain().querySelector('.snl-panel-header button[aria-label="Back"]'));
   expect(location.hash).toBe('#/graph?return=%23%2Fnode%2Fsecond');
 });
 
@@ -178,7 +178,7 @@ it('mounts the shared SNoogL search on a deep link and returns Entry reading to 
   const searchHash = location.hash;
   await click(visibleMain().querySelector('[role="option"]'));
   expect(location.hash).toContain('#/entry/Alpha');
-  await click(visibleMain().querySelector('button'));
+  await click(visibleMain().querySelector('.snl-panel-header button[aria-label="Back"]'));
   expect(location.hash).toBe(searchHash);
   expect(visibleMain().querySelector<HTMLInputElement>('input[type="text"]')?.value).toBe('Alpha');
 });

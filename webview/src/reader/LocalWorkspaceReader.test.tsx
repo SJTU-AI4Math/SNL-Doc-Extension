@@ -6,7 +6,7 @@ import { decodeReaderRoute } from './readerRoute';
 import type { FrozenReaderSnapshot } from '../../../src/sharedReaderSnapshot';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const workspace = (libraries = [{ slug: 'A', title: 'Library A' }, { slug: 'B', title: 'Library B' }], name = 'My workspace') => ({
+const workspace = (libraries: Array<{ slug: string; title: string; entryCount?: number | null; relationshipCount?: number | null }> = [{ slug: 'A', title: 'Library A' }, { slug: 'B', title: 'Library B' }], name = 'My workspace') => ({
   id: 'local', name, root: '/folder', libraries, capabilities: { edit: false }
 });
 const snapshot = (slug: string, body = `${slug} content`): FrozenReaderSnapshot => {
@@ -46,6 +46,60 @@ const resolve = async (index: number, value: unknown, ok = true) => { await act(
 const go = async (hash: string) => { await act(async () => { history.replaceState(null, '', hash); window.dispatchEvent(new PopStateEvent('popstate')); }); };
 const button = (label: string) => Array.from(element.querySelectorAll('button')).find(node => !node.closest('[hidden]') && (node.textContent === label || node.getAttribute('aria-label') === label))!;
 const visibleHeaders = () => Array.from(element.querySelectorAll('nav, :scope > header')).filter(node => !node.closest('[hidden]'));
+
+it('renders a read-only Libraries table from catalog summaries without fetching snapshots', async () => {
+  await mount();
+  await resolve(0, workspace([
+    { slug: 'A', title: 'Library A', entryCount: 12, relationshipCount: 4 },
+    { slug: 'B', title: 'Library B', entryCount: 0, relationshipCount: null },
+    { slug: 'legacy', title: '' }
+  ]));
+  const table = element.querySelector('table')!;
+  expect(table).not.toBeNull();
+  expect(Array.from(table.querySelectorAll('th'), th => th.textContent)).toEqual(['Title', 'Slug', 'Entries', 'Relationships']);
+  expect(Array.from(table.querySelectorAll('tbody tr'), row => Array.from(row.querySelectorAll('td'), cell => cell.textContent)))
+    .toEqual([['Library A', 'A', '12', '4'], ['Library B', 'B', '0', '—'], ['legacy', 'legacy', '—', '—']]);
+  expect(table.querySelectorAll('button')).toHaveLength(3);
+  expect(table.querySelector('[aria-label*="Edit"], [aria-label*="Delete"], input')).toBeNull();
+  expect(element.querySelector('[aria-label*="Create"]')).toBeNull();
+  expect(requests.map(request => request.url)).toEqual(['/__snl/api/workspace']);
+  const open = table.querySelector<HTMLButtonElement>('button[aria-label="Open library A"]')!;
+  expect(open).not.toBeNull();
+  expect(open.type).toBe('button');
+  expect(open.disabled).toBe(false);
+  await act(async () => open.focus());
+  expect(document.activeElement).toBe(open);
+  await click(open);
+  expect(decodeReaderRoute(location.hash)).toEqual({ kind: 'library', librarySlug: 'A' });
+  expect(requests.map(request => request.url)).toEqual(['/__snl/api/workspace', '/__snl/api/snapshot?library=A']);
+  await go('#/workspace');
+  await click(element.querySelector('table tbody tr:nth-child(2) td:nth-child(2)')!);
+  expect(decodeReaderRoute(location.hash)).toEqual({ kind: 'library', librarySlug: 'B' });
+  expect(requests[2].url).toBe('/__snl/api/snapshot?library=B');
+});
+
+it('contains long catalog text in the shared table scrollport while retaining Panel layout', async () => {
+  const title = 'A long library title '.repeat(20);
+  const slug = 'long-slug-'.repeat(20);
+  await mount(); await resolve(0, workspace([{ title, slug }]));
+  const main = element.querySelector('main')!;
+  expect(main.style.width).toBe('100%');
+  expect(main.style.minWidth).toBe('0px');
+  expect(main.style.boxSizing).toBe('border-box');
+  const scrollport = element.querySelector<HTMLElement>('.snl-libraries-table-scroll')!;
+  expect(scrollport.style.overflowX).toBe('auto');
+  expect(scrollport.style.maxWidth).toBe('100%');
+  const table = scrollport.querySelector('table')!;
+  expect(table.style.tableLayout).toBe('fixed');
+  expect(table.style.minWidth).toBe('40rem');
+  const cells = table.querySelectorAll('td');
+  expect(cells[0].textContent).toBe(title);
+  expect(cells[1].textContent).toBe(slug);
+  expect(cells[1].style.overflowWrap).toBe('anywhere');
+  expect(cells[0].querySelector('button')!.style.whiteSpace).toBe('normal');
+  expect(cells[0].querySelector('button')!.style.overflowWrap).toBe('anywhere');
+  // Actual browser geometry and native Enter/Space activation are the host acceptance gate.
+});
 
 it('uses one real PanelHeader for workspace loading, home, library loading and failures', async () => {
   await mount();
@@ -90,6 +144,9 @@ it('applies workspace header preferences immediately and keeps them across readi
   await click(element.querySelector('[data-language="zh-CN"]')!);
   expect(visibleHeaders()[0].getAttribute('aria-label')).toBe('面板导航');
   expect(visibleHeaders()[0].textContent).toContain('只读');
+  expect(Array.from(element.querySelectorAll('.snl-libraries-table th'), cell => cell.textContent)).toEqual(['标题', '标识名', '条目数', '关系数']);
+  expect(element.querySelector('.snl-libraries-table button[aria-label="打开库 A"]')).not.toBeNull();
+  expect(element.querySelector('.snl-libraries-table button[aria-label*="编辑"]')).toBeNull();
   await click(element.querySelector('[aria-label="阅读偏好"]')!);
   const theme = element.querySelector<HTMLSelectElement>('select[aria-label="主题"]')!;
   await act(async () => { theme.value = 'dark'; theme.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -113,7 +170,7 @@ it('loads an empty workspace home without inventing a Library and refreshes its 
   expect(requests.map(r => r.url)).toEqual(['/__snl/api/workspace', '/__snl/api/workspace']);
   await resolve(1, workspace(undefined, 'Renamed workspace'));
   expect(element.textContent).toContain('Renamed workspace');
-  await click(element.querySelector('a[href="#/library?library=A"]')!);
+  await click(element.querySelector('table.snl-libraries-table tr[data-row-id="A"] button[aria-label="Open library A"]')!);
   expect(decodeReaderRoute(location.hash)).toEqual({ kind: 'library', librarySlug: 'A' });
   expect(requests[2].url).toBe('/__snl/api/snapshot?library=A');
   await resolve(2, snapshot('A'));
@@ -183,7 +240,7 @@ it('reports failed reads and rejects mismatched library snapshots without trappi
   expect(element.querySelector('[role="alert"]')?.textContent).toContain('library');
   expect(element.textContent).not.toContain('other content');
   await click(button('Workspace'));
-  expect(element.querySelectorAll('a[href^="#/library"]')).toHaveLength(2);
+  expect(Array.from(element.querySelectorAll('table.snl-libraries-table tbody button'), node => node.getAttribute('aria-label'))).toEqual(['Open library A', 'Open library B']);
 });
 
 it('boots a search deep link into the existing shared panel and preserves its library on Entry Back', async () => {
@@ -196,7 +253,7 @@ it('boots a search deep link into the existing shared panel and preserves its li
   await click(element.querySelector('[role="option"]')!);
   expect(decodeReaderRoute(location.hash)).toMatchObject({ kind: 'entry', librarySlug: 'B', entryId: 'Shared' });
   const main = Array.from(element.querySelectorAll('main')).find(node => !node.closest('[hidden]'))!;
-  await click(main.querySelector('button')!);
+  await click(main.querySelector('.snl-panel-header button[aria-label="Back"]')!);
   expect(location.hash).toBe(hash);
   expect(requests).toHaveLength(2);
 });

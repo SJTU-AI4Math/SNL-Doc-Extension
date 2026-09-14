@@ -5,7 +5,8 @@ import { PanelHeader } from '../components/PanelHeader';
 import { createBrowserPreferences } from './browserPreferences';
 import { BUILT_IN_LANGUAGE_CATALOG } from '../../../src/languageCatalog';
 import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
-import { READER_STYLE } from './ReaderCapabilities';
+import { PANEL_STYLE } from '../vscodeApi';
+import { LibrariesTable, type LibrarySummary } from '../components/LibrariesTable';
 import { encodeReaderRoute } from './readerRoute';
 import { navigateReaderHash, useReaderLocation } from './readerHistory';
 
@@ -13,7 +14,7 @@ export interface LocalReaderWorkspace {
   id: 'local';
   name: string;
   root: string;
-  libraries: Array<{ slug: string; title: string }>;
+  libraries: LibrarySummary[];
   capabilities: { edit: false };
 }
 const MESSAGES = defineUiMessages('localWorkspaceReader', {
@@ -78,23 +79,22 @@ export function LocalWorkspaceReader(): React.ReactElement {
   const current = reading?.slug === librarySlug && reading?.refresh === refresh ? reading : undefined;
   const home = () => navigateReaderHash(encodeReaderRoute({ kind: 'workspace' }));
   return <>
-    {librarySlug === undefined ? <main style={READER_STYLE}>
+    {librarySlug === undefined ? <main style={PANEL_STYLE}>
       <WorkspaceHeader title={catalog.value?.name ?? t('title')} onRefresh={() => setRefresh(value => value + 1)} />
       {catalog.error ? <p role="alert">{t('failed', { message: catalog.error })}</p> : null}
       {catalog.value ? <>
-        <p><code>{catalog.value.root}</code></p>
-        {catalog.value.libraries.length ? <ul>{catalog.value.libraries.map(library => <li key={library.slug}>
-          <a href={encodeReaderRoute({ kind: 'library', librarySlug: library.slug })} onClick={event => {
-            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-            event.preventDefault(); navigateReaderHash(encodeReaderRoute({ kind: 'library', librarySlug: library.slug }));
-          }}>{library.title || library.slug}</a>
-        </li>)}</ul> : <p>{t('empty')}</p>}
+        <p style={{ overflowWrap: 'anywhere' }}><code>{catalog.value.root}</code></p>
+        {catalog.value.libraries.length ? <LibrariesTable
+          libraries={catalog.value.libraries}
+          readOnly
+          onOpen={slug => navigateReaderHash(encodeReaderRoute({ kind: 'library', librarySlug: slug }))}
+        /> : <p>{t('empty')}</p>}
       </> : null}
       {catalog.loading ? <p role="status">{t('loading')}</p> : null}
     </main> : current?.snapshot ? <BrowserReader key={`${librarySlug}:${current.generation}`} snapshot={current.snapshot} hostContext={{
       librarySlug, scope: t('scope'), sourceUnavailableReason: t('source'), unavailable: t('unavailable'),
       missingEntry: t('missing'), graphEmpty: t('graphEmpty'), workspaceLabel: t('workspace'), onWorkspace: home, onRefresh: () => setRefresh(value => value + 1)
-    }} /> : <main style={READER_STYLE}>
+    }} /> : <main style={PANEL_STYLE}>
       <WorkspaceHeader title={catalog.value?.name ?? t('title')} onWorkspace={home} onRefresh={() => setRefresh(value => value + 1)} />
       {catalog.error ? <p role="alert">{t('failed', { message: catalog.error })}</p> : null}
       {current?.error ? <p role="alert">{t('failed', { message: current.error })}</p> : <p role="status">{t('loading')}</p>}

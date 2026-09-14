@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
-import { open, readFile, unlink, type FileHandle } from 'node:fs/promises';
+import { lstat, open, readFile, unlink, type FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 
 export const DATA_WRITE_LOCK_FILENAME = '.data-write.lock';
@@ -28,6 +28,56 @@ const heldLocks = new AsyncLocalStorage<ReadonlyMap<string, HeldLockContext>>();
 
 function dataLockPath(root: FileWorkspaceRoot): string {
   return join(root.fsPath, '.SNL_Doc', DATA_WRITE_LOCK_FILENAME);
+}
+
+async function assertNoBatchRecovery(root: FileWorkspaceRoot): Promise<void> {
+  const journal = join(root.fsPath, '.snl-batch-transaction.json');
+  try {
+    // lstat deliberately blocks even malformed journals and dangling symlinks.
+    await lstat(journal);
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') return;
+    throw error;
+  }
+  throw new Error(
+    `SNL batch transaction requires recovery: ${journal}. ` +
+    'Stop all writers and preserve the journal and transaction trees for recovery with a compatible Toolkit. ' +
+    'Removing only a stale data lock is not recovery; retry only after the transaction is safely resolved.'
+  );
+}
+
+async function ownsCanonicalLock(
+  handle: FileHandle, path: string, token: string, allowIncomplete = false
+): Promise<boolean> {
+  const identity = await handle.stat({ bigint: true });
+  const matches = async (): Promise<boolean> => {
+    try {
+      const current = await lstat(path, { bigint: true });
+      return current.isFile() && identity.isFile() &&
+        current.dev === identity.dev && current.ino === identity.ino;
+    } catch (error) {
+      if (errorCode(error) === 'ENOENT') return false;
+      throw error;
+    }
+  };
+  if (!await matches()) return false;
+  const current = await readLock(path);
+  if (current ? current.token !== token : !allowIncomplete) return false;
+  // Do not trust a token read through a pathname that changed during the read.
+  return matches();
+}
+
+async function removeOwnedLock(
+  handle: FileHandle, path: string, token: string, allowIncomplete = false
+): Promise<void> {
+  // Keep the FD open through the identity checks (no inode reuse after close).
+  // This is a cooperative-writer protocol, not an OS atomic conditional unlink.
+  if (!await ownsCanonicalLock(handle, path, token, allowIncomplete)) return;
+  try {
+    await unlink(path);
+  } catch (error) {
+    if (errorCode(error) !== 'ENOENT') throw error;
+  }
 }
 
 function errorCode(error: unknown): string | undefined {
@@ -69,6 +119,7 @@ async function acquireLock(
   if (root.scheme !== 'file' || !root.fsPath) {
     throw new Error(`Workspace data locking requires a local file workspace, not ${root.scheme}.`);
   }
+  await assertNoBatchRecovery(root);
   const path = dataLockPath(root);
   const record: LockRecord = {
     version: 1,
@@ -81,16 +132,23 @@ async function acquireLock(
 
   try {
     const handle = await open(path, 'wx', 0o600);
+    let initialized = false;
     try {
       await handle.writeFile(`${JSON.stringify(record)}\n`, 'utf8');
+      initialized = true;
       await handle.sync();
+      await assertNoBatchRecovery(root);
+      if (!await ownsCanonicalLock(handle, path, record.token)) {
+        throw new Error('SNL workspace data lock ownership changed during acquisition; no write was admitted.');
+      }
       return { handle, path, record };
     } catch (error) {
-      await handle.close();
       try {
-        await unlink(path);
-      } catch (unlinkError) {
-        if (errorCode(unlinkError) !== 'ENOENT') throw unlinkError;
+        // A failed initial write may not have left a readable token. Its open FD
+        // still proves which inode we created; never unlink a replacement inode.
+        await removeOwnedLock(handle, path, record.token, !initialized);
+      } finally {
+        await handle.close();
       }
       throw error;
     }
@@ -102,7 +160,7 @@ async function acquireLock(
     if (stale) {
       throw new Error(
         `SNL workspace data has a stale ${existing.purpose} lock from pid ${existing.pid}. ` +
-        `After confirming no writer is active, remove ${path} and retry.`
+        `After confirming no writer is active and no batch transaction requires recovery, remove ${path} and retry.`
       );
     }
     const owner = existing
@@ -129,14 +187,10 @@ export async function withWorkspaceDataLock<T>(
     return await heldLocks.run(nextLocks, task);
   } finally {
     lockContext.active = false;
-    await acquired.handle.close();
-    const current = await readLock(acquired.path);
-    if (current?.token === acquired.record.token) {
-      try {
-        await unlink(acquired.path);
-      } catch (error) {
-        if (errorCode(error) !== 'ENOENT') throw error;
-      }
+    try {
+      await removeOwnedLock(acquired.handle, acquired.path, acquired.record.token);
+    } finally {
+      await acquired.handle.close();
     }
   }
 }

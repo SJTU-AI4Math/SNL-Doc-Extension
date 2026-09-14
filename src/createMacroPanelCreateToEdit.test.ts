@@ -208,7 +208,7 @@ describe('macro panel create -> edit flip', () => {
     expect(created).toHaveLength(1);
     expect(created[0].title).toContain('Create Macro');
 
-    await handlers[0]({ type: 'create', macro: { name: 'foo', styles: [] } });
+    await handlers[0]({ type: 'create', requestId: 'receipt-1', macro: { name: 'foo', styles: [] } });
 
     expect(posted.some(
       (m) => (m as { type?: string }).type === 'created'
@@ -219,6 +219,8 @@ describe('macro panel create -> edit flip', () => {
     configurationHandlers.at(-1)?.({ affectsConfiguration: (key) => key === 'snlDoc.locale' });
     expect(created[0].title).toBe('SNL Edit Macro — foo (algebra)');
 
+    expect(posted).toContainEqual(expect.objectContaining({ type: 'created', requestId: 'receipt-1' }));
+    expect(contexts().at(-1)).toMatchObject({ savedRequestId: 'receipt-1' });
     const last = contexts().at(-1)!;
     expect(last.mode).toBe('edit');
     expect(last.existing).not.toBeNull();
@@ -226,6 +228,16 @@ describe('macro panel create -> edit flip', () => {
     // The self-duplicate trap: the new name IS in existingNames, which is
     // exactly why mode must be 'edit' for the webview to keep Save enabled.
     expect(last.existingNames).toContain('foo');
+  });
+
+  it('correlates update success and the following context without trusting a payload rename', async () => {
+    const { CreateMacroPanel } = await import('./createMacroPanel');
+    macros.push({ name: 'fixed', styles: [] });
+    CreateMacroPanel.editOrShow(extUri, 'receipt.json', 'fixed');
+    await handlers[0]({ type: 'update', requestId: 'update-receipt', expectedRevision: 'original', macro: { name: 'injected', styles: [] } });
+    const successIndex = posted.findIndex(m => (m as { type?: string }).type === 'updated');
+    expect(posted[successIndex]).toMatchObject({ name: 'fixed', requestId: 'update-receipt' });
+    expect(posted[successIndex + 1]).toMatchObject({ type: 'context', savedRequestId: 'update-receipt', macroRevision: 'test-revision', existing: { name: 'fixed' } });
   });
 
   it('rekeys instances: editOrShow reveals, never builds a second panel', async () => {

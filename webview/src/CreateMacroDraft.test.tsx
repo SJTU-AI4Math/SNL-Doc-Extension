@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let webviewState: unknown;
@@ -145,6 +145,60 @@ describe('SVG Macro editor forward port', () => {
   });
 });
 
+
+
+
+describe('SVG-R1 Macro receipt ordering', () => {
+  it.each(['edit', 'create'] as const)('preserves post-submit SVG edits across %s success/context and remount', async (mode) => {
+    const oldSource = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path id="old-art" d="M0 0h2v2z"/></svg>';
+    const projection = { asset: { source: 'svg/original.svg', base_identity: 'workspace:.SNL_Doc/assets', revision: 'sha256:' + 'a'.repeat(64), request_epoch: 0 }, generation: 1, producer_revision: 'test', accessibility: { label: 'Saved label' } };
+    const existing = { ...macro('Diagram.receipt', 'Original'), name: 'Diagram.receipt', styles: [{ style_name: 'default', tags: ['keep'], template: { mode: 'block', body: '#1 #0', block_template_name: 'svg_template', svg_template: projection } }] };
+    const firstContext = mode === 'edit' ? context('edit', existing, 'r1') : { ...context('create', null), prefill: { macro: { ...existing, name: '' } } };
+    const view = render(<CreateMacroApp />);
+    send(firstContext);
+    if (mode === 'create') fireEvent.change(document.getElementById('m-name')!, { target: { value: existing.name } });
+    await act(async () => {
+      for (const request of posted as Record<string, unknown>[]) {
+        if (request.type === 'snl.assets/read-svg') send({ ...request, type: 'snl.assets/svg-source', value: oldSource });
+      }
+    });
+    await waitFor(() => expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toBe(oldSource));
+    fireEvent.click(screen.getByRole('button', { name: mode === 'edit' ? 'Update Macro' : 'Create Macro' }));
+    const request = lastMutation()!;
+    expect(request).toBeTruthy();
+    const newer = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g data-snl-slot="1"/><path id="new-art" d="M0 0h5v5z"/></svg>';
+    fireEvent.change(screen.getByLabelText('SVG source'), { target: { value: newer } });
+    fireEvent.click(screen.getByRole('button', { name: 'Load SVG preview' }));
+    fireEvent.change(screen.getByLabelText('Accessibility label'), { target: { value: 'New label' } });
+    fireEvent.change(screen.getByLabelText('Slot index'), { target: { value: '3' } });
+    fireEvent.change(screen.getByPlaceholderText('Short human-readable description'), { target: { value: 'New description' } });
+    expect(JSON.stringify(webviewState)).toContain('New label');
+    const beforeWrongReceipt = JSON.stringify(webviewState);
+    send({ type: mode === 'edit' ? 'updated' : 'created', name: existing.name, requestId: 'wrong-request' });
+    expect(JSON.stringify(webviewState)).toBe(beforeWrongReceipt);
+    send({ type: mode === 'edit' ? 'updated' : 'created', name: existing.name, requestId: request.requestId });
+    send({ ...context('edit', existing, 'r2'), savedRequestId: request.requestId });
+    const check = (): void => {
+      expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toBe(newer);
+      expect((screen.getByLabelText('Accessibility label') as HTMLInputElement).value).toBe('New label');
+      expect((screen.getByLabelText('Slot index') as HTMLInputElement).value).toBe('3');
+      expect((screen.getByPlaceholderText('Short human-readable description') as HTMLInputElement).value).toBe('New description');
+      expect(screen.getByTestId('svg-macro-preview').querySelector('#new-art')).toBeTruthy();
+      expect(screen.getByTestId('svg-macro-preview').querySelector('[data-snl-slot="1"]')).toBeTruthy();
+      expect(JSON.stringify(webviewState)).toContain('"saved":false');
+      expect(JSON.stringify(webviewState)).toContain('r2');
+      expect((screen.getByRole('button', { name: 'Update Macro' }) as HTMLButtonElement).disabled).toBe(true);
+    };
+    check();
+    send({ type: mode === 'edit' ? 'updated' : 'created', name: existing.name, requestId: request.requestId });
+    check(); // A replay cannot clear the surviving generation.
+    expect(Object.keys(webviewState as object).filter(key => key.includes('macro:create:'))).toEqual([]);
+    view.unmount(); render(<CreateMacroApp />);
+    send(context('edit', existing, 'r3'));
+    check();
+    expect((document.getElementById('m-name') as HTMLInputElement).readOnly).toBe(true);
+  });
+});
 
 describe('unsaved SVG drafts', () => {
   it('retains SVG source and loaded artwork across refresh and full remount', () => {

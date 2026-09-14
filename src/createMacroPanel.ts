@@ -221,12 +221,13 @@ export class CreateMacroPanel {
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
-  private async pushContext(): Promise<void> {
+  private async pushContext(savedRequestId?: string): Promise<void> {
     const generation = ++this.contextGeneration;
     const root = firstWorkspaceFolder();
     if (!root) {
       void this.panel.webview.postMessage({
         type: 'context',
+        savedRequestId,
         mode: this.mode,
         targetState: this.mode === 'edit' ? 'notFound' : 'found',
         targetId: this.mode === 'edit' ? this.macroName : undefined,
@@ -291,6 +292,7 @@ export class CreateMacroPanel {
       };
       void this.panel.webview.postMessage({
         type: 'context',
+        savedRequestId,
         mode: this.mode,
         targetState: existing ? 'found' : this.mode === 'edit' ? 'notFound' : 'found',
         targetId: this.mode === 'edit' ? this.macroName : undefined,
@@ -433,6 +435,7 @@ export class CreateMacroPanel {
       return;
     }
 
+    const requestId = typeof msg.requestId === 'string' && msg.requestId.length <= 200 ? msg.requestId : undefined;
     const macro = msg.macro;
     if (!macro || typeof macro !== 'object') {
       void this.panel.webview.postMessage({
@@ -459,9 +462,10 @@ export class CreateMacroPanel {
             );
             void this.panel.webview.postMessage({
               type: 'updated',
+              requestId,
               name: result.name
             });
-            await this.pushContext();
+            await this.pushContext(requestId);
             return;
           case 'notFound': {
             const text = hostText()('notFound', { name: result.id, file: this.file });
@@ -505,6 +509,7 @@ export class CreateMacroPanel {
           );
           void this.panel.webview.postMessage({
             type: 'created',
+            requestId,
             name: result.name
           });
           // Cat 2026-07-27: flip this panel in place to EDIT mode for the
@@ -515,7 +520,7 @@ export class CreateMacroPanel {
           // create-mode panel would leave Save permanently disabled.
           this.flipToEditMode(result.name);
           // Refresh the editor's existing-names list.
-          await this.pushContext();
+          await this.pushContext(requestId);
           return;
         case 'duplicate': {
           const text = hostText()('duplicate', { name: result.name });

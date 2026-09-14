@@ -62,7 +62,12 @@ describe('Macro create-to-edit destination drafts', () => {
       type: 'context', mode: 'create', file, packageName: 'Algebra', existingNames: [],
       macroCandidates: [], workspaceMacros: {}, macroKinds: [], entries: [], existing: null, prefill: null
     });
-    send({ type: 'created', name });
+    fireEvent.change(document.getElementById('m-name')!, { target: { value: name } });
+    fireEvent.change(screen.getByPlaceholderText(/\\frac/), { target: { value: 'template' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Macro' }));
+    const request = (harness.posted as { type: string; requestId?: string }[]).find(m => m.type === 'create')!;
+    expect(request).toBeTruthy();
+    send({ type: 'created', name: name, requestId: request.requestId });
     send({
       type: 'context', mode: 'edit', targetState: 'found', targetId: name, file,
       packageName: 'Algebra', existingNames: [name], macroCandidates: [], workspaceMacros: {},

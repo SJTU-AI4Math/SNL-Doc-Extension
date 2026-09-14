@@ -38,7 +38,9 @@ const initial = {
   } }]
 };
 let entity = cli(['macro', 'create'], initial).data.entity;
-const id = entity.id;
+let id = entity.id;
+let panelMode = 'edit';
+let createPrefill;
 const require = createRequire(import.meta.url);
 const { writeWorkspaceSvgMacroAssets } = require(resolve(repo, 'out/svgMacroAssets.js'));
 const RAW = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60"><path id="art" d="M10 10h20v10H10z" fill="#000000"/><circle cx="70" cy="30" r="8" fill="white"/></svg>';
@@ -47,11 +49,13 @@ writeFileSync(importPath, RAW);
 let rejectNextSave = false;
 let holdNextSave = false;
 let releaseSave;
+let holdNextMacro = false;
+let releaseMacro;
 const posts = [];
 function context() {
-  return { type: 'context', mode: 'edit', file: packageId + '.json', packageName: packageId,
+  return { type: 'context', mode: panelMode, file: packageId + '.json', packageName: packageId,
     existingNames: [entity.value.name], macroCandidates: [], macroKinds: [], entries: [],
-    existing: entity.value, macroRevision: entity.revision, prefill: null };
+    existing: panelMode === 'edit' ? entity.value : null, macroRevision: panelMode === 'edit' ? entity.revision : undefined, prefill: panelMode === 'create' ? { macro: createPrefill } : null };
 }
 async function message(m) {
   posts.push(m);
@@ -71,16 +75,25 @@ async function message(m) {
     return { type: 'snl.assets/svg-source', request_id: m.request_id, source: m.source,
       base_identity: m.base_identity, revision: m.revision, value };
   }
+  if (m.type === 'create') {
+    const result = cli(['macro', 'create'], { ...m.macro, package: packageId });
+    entity = result.data.entity; id = entity.id; panelMode = 'edit';
+    const replies = [{ type: 'created', name: entity.value.name, requestId: m.requestId }, { ...context(), savedRequestId: m.requestId }];
+    if (holdNextMacro) { holdNextMacro = false; await new Promise(done => { releaseMacro = done; }); }
+    return replies;
+  }
   if (m.type === 'update') {
     const result = cli(['macro', 'update', id, '--if-match', m.expectedRevision], { ...m.macro, package: packageId }, false);
     if (!result.ok) return { type: 'error', message: 'CAS conflict' };
     entity = result.data.entity;
-    return { type: 'updated', name: entity.value.name };
+    const replies = [{ type: 'updated', name: entity.value.name, requestId: m.requestId }, { ...context(), savedRequestId: m.requestId }];
+    if (holdNextMacro) { holdNextMacro = false; await new Promise(done => { releaseMacro = done; }); }
+    return replies;
   }
   return null;
 }
 const html = `<!doctype html><html lang="en" data-snl-color-scheme="dark"><head><meta charset="utf-8"><style>body{margin:0;background:#1e1e1e;color:#ddd}</style><link rel="stylesheet" href="/createMacro.css"><script>
-window.__posted=[];window.acquireVsCodeApi=()=>({getState:()=>JSON.parse(sessionStorage.getItem('draft')||'null'),setState:s=>sessionStorage.setItem('draft',JSON.stringify(s)),postMessage:m=>{window.__posted.push(m);fetch('/message',{method:'POST',body:JSON.stringify(m)}).then(r=>r.json()).then(data=>{if(data)window.dispatchEvent(new MessageEvent('message',{data}));}).catch(e=>{window.__bridgeError=String(e);});}});
+window.__posted=[];window.acquireVsCodeApi=()=>({getState:()=>JSON.parse(sessionStorage.getItem('draft')||'null'),setState:s=>sessionStorage.setItem('draft',JSON.stringify(s)),postMessage:m=>{window.__posted.push(m);fetch('/message',{method:'POST',body:JSON.stringify(m)}).then(r=>r.json()).then(data=>{for(const reply of (Array.isArray(data)?data:[data]))if(reply)window.dispatchEvent(new MessageEvent('message',{data:reply}));}).catch(e=>{window.__bridgeError=String(e);});}});
 </script></head><body><div id="root"></div><script type="module" src="/createMacro.js"></script></body></html>`;
 const server = createServer(async (req, res) => {
   try {
@@ -189,7 +202,39 @@ try {
   assert.equal(saved.value.styles[0].template.svg_template.accessibility.label, 'Diagram title');
   assert.ok(!JSON.stringify(saved.value).includes('svg_editor_drafts'));
   receipt.assertions.push('actual immutable assets and official canonical CAS readback preserve body order, tags and title');
-  const snapshot = JSON.stringify(saved);
+  // SVG-R1: hold the Macro receipt AND its following canonical context, not assetsWritten.
+  await page.call('Page.reload');
+  await wait(`document.querySelector('.snl-svg-macro-editor')`);
+  await wait(`${field('Accessibility label')}.value==='Diagram title'`);
+  holdNextMacro = true;
+  await click('Update Macro');
+  for (let i = 0; i < 100 && !releaseMacro; i++) await delay(25);
+  assert.ok(releaseMacro, 'Macro success/context held');
+  const newerSource = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g data-snl-slot="1"/><path id="new-art" d="M0 0h5v5z"/></svg>';
+  await fill('SVG source', newerSource); await click('Load SVG preview');
+  await fill('Accessibility label', 'After Macro submit');
+  await fill('Slot index', '3');
+  await wait(`sessionStorage.getItem('draft').includes('After Macro submit')`);
+  receipt.macroRaceBefore = await evaluate(`JSON.parse(sessionStorage.getItem('draft'))`);
+  releaseMacro(); releaseMacro = undefined;
+  await wait(`${button('Update Macro')} && !${button('Update Macro')}.textContent.includes('…')`);
+  await delay(100);
+  receipt.macroRaceAfter = await evaluate(`JSON.parse(sessionStorage.getItem('draft'))`);
+  assert.equal(await evaluate(`${field('SVG source')}.value`), newerSource, 'SVG-R1 source after Macro updated/context');
+  assert.equal(await evaluate(`${field('Accessibility label')}.value`), 'After Macro submit');
+  assert.ok(JSON.stringify(receipt.macroRaceAfter).includes('"saved":false'));
+  await page.call('Page.reload');
+  await wait(`document.querySelector('.snl-svg-macro-editor')`);
+  await wait(`${field('Accessibility label')}.value==='After Macro submit'`);
+  assert.equal(await evaluate(`${field('SVG source')}.value`), newerSource);
+  assert.equal(await evaluate(`${field('Slot index')}.value`), '3');
+  assert.ok(await evaluate(`document.querySelector('#new-art') && document.querySelector('[data-snl-slot="1"]')`));
+  receipt.assertions.push('SVG-R1 Macro updated/context preserves post-submit source, label, slot, preview, saved:false and reload');
+  // Resume the pre-existing asset failure/stale-success controls from canonical.
+  await evaluate(`sessionStorage.removeItem('draft')`); await page.call('Page.reload');
+  await wait(`document.querySelector('.snl-svg-macro-editor')`);
+  await wait(`${field('Accessibility label')}.value==='Diagram title'`);
+  const snapshot = JSON.stringify(cli(['macro', 'get', id]).data.entity);
   rejectNextSave = true;
   await fill('Accessibility label', 'Unsaved title'); await click('Save SVG Macro Asset');
   await wait(`document.querySelector('[role=alert]')?.textContent.includes('Could not save')`);
@@ -208,6 +253,34 @@ try {
   const stale = cli(['macro', 'update', id, '--if-match', saved.revision], saved.value, false);
   assert.equal(stale.ok, false); assert.equal(cli(['macro', 'get', id]).data.entity.revision, invalid.revision);
   receipt.assertions.push('canonical stale CAS rejected without overwrite');
+  // The same race must survive the create -> edit identity migration.
+  panelMode = 'create'; createPrefill = { ...saved.value, name: '' };
+  await evaluate(`sessionStorage.removeItem('draft')`); await page.call('Page.reload');
+  await wait(`document.querySelector('.snl-svg-macro-editor')`);
+  await wait(`${field('Accessibility label')}.value==='Diagram title'`);
+  await evaluate(`(()=>{const e=document.getElementById('m-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'Diagram.created');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  holdNextMacro = true; await click('Create Macro');
+  for (let i = 0; i < 100 && !releaseMacro; i++) await delay(25);
+  assert.ok(releaseMacro, 'create receipt/context held');
+  await fill('SVG source', newerSource); await click('Load SVG preview');
+  await fill('Accessibility label', 'After create submit'); await fill('Slot index', '4');
+  await wait(`sessionStorage.getItem('draft').includes('After create submit')`);
+  receipt.createRaceBefore = await evaluate(`JSON.parse(sessionStorage.getItem('draft'))`);
+  releaseMacro(); releaseMacro = undefined;
+  await wait(`document.getElementById('m-name').readOnly`);
+  assert.equal(await evaluate(`${field('SVG source')}.value`), newerSource);
+  assert.equal(await evaluate(`${field('Accessibility label')}.value`), 'After create submit');
+  receipt.createRaceAfter = await evaluate(`JSON.parse(sessionStorage.getItem('draft'))`);
+  assert.ok(!Object.keys(receipt.createRaceAfter).some(key => key.includes('macro:create:')));
+  assert.ok(JSON.stringify(receipt.createRaceAfter).includes('"saved":false'));
+  await page.call('Page.reload'); await wait(`document.querySelector('.snl-svg-macro-editor')`);
+  await wait(`${field('Accessibility label')}.value==='After create submit'`);
+  assert.equal(await evaluate(`${field('SVG source')}.value`), newerSource);
+  assert.equal(await evaluate(`${field('Slot index')}.value`), '4');
+  assert.equal(await evaluate(`document.getElementById('m-name').value`), 'Diagram.created');
+  assert.ok(await evaluate(`document.querySelector('#new-art') && document.querySelector('[data-snl-slot="1"]')`));
+  assert.equal(await evaluate(`${button('Update Macro')}.disabled`), true);
+  receipt.assertions.push('SVG-R1 create -> edit preserves newer source/label/slot/preview/saved:false, migrates persisted key and reloads immutable created identity');
   cli(['validate']);
   const errors = page.events.filter(e => e.method === 'Runtime.exceptionThrown'); assert.deepEqual(errors, []);
   assert.equal(await evaluate('window.__bridgeError ?? null'), null);

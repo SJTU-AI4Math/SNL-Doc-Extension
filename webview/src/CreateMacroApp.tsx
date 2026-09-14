@@ -985,6 +985,7 @@ interface ContextMsg {
   macroKinds?: MacroKind[];
   existing?: ExtendedSnlMacro | null;
   macroRevision?: string;
+  savedRequestId?: string;
   /**
    * Entry pool for the source.entries picker (EntityIdSearchBox). Pushed
    * on initial context so the picker has options as soon as the panel
@@ -1011,8 +1012,8 @@ interface ContextMsg {
 type Incoming =
   | ContextMsg
   | { type: 'kindsRefresh'; macroKinds: MacroKind[] }
-  | { type: 'created'; name: string }
-  | { type: 'updated'; name: string }
+  | { type: 'created'; name: string; requestId?: string }
+  | { type: 'updated'; name: string; requestId?: string }
   | { type: 'duplicate'; name: string; message: string }
   | { type: 'notFound'; name: string; message: string }
   | { type: 'invalid'; reason: string }
@@ -1106,6 +1107,10 @@ export function CreateMacroApp(): React.ReactElement {
   const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const apiRef = useVsCodeApiRef();
   const formDirtyRef = useRef(false);
+  const editGenerationRef = useRef(0);
+  const pendingSaveRef = useRef<{ requestId: string; key: string; name: string; mode: PanelMode; generation: number } | null>(null);
+  const acceptedSaveRef = useRef<{ requestId: string; key: string } | null>(null);
+  const latestDraftRef = useRef<MacroEditorDraft | null>(null);
   const macroRevisionRef = useRef<string | undefined>(undefined);
   const editingNameRef = useRef('');
   const fileRef = useRef('');
@@ -1168,6 +1173,7 @@ export function CreateMacroApp(): React.ReactElement {
 
   function markFormDirty(): void {
     formDirtyRef.current = true;
+    editGenerationRef.current += 1;
   }
 
   /** Patch fields on the active style and atomically persist its full template projection. */
@@ -1421,6 +1427,11 @@ export function CreateMacroApp(): React.ReactElement {
             : `${msg.file}\u0000${msg.packageName}`;
           const nextDraftKey = editorDraftKey('macro', msg.mode, identity);
           const identityChanged = draftKeyRef.current !== nextDraftKey;
+          const accepted = acceptedSaveRef.current;
+          if (accepted && accepted.requestId === msg.savedRequestId && accepted.key === nextDraftKey) {
+            macroRevisionRef.current = msg.macroRevision;
+            acceptedSaveRef.current = null;
+          }
           draftKeyRef.current = nextDraftKey;
           setDraftKey(nextDraftKey);
 
@@ -1484,25 +1495,34 @@ export function CreateMacroApp(): React.ReactElement {
           setMacroKinds(canonicalMacroKindCatalog(Array.isArray(msg.macroKinds) ? msg.macroKinds : []));
           break;
         case 'created':
-          // The host flips this panel to edit mode for the macro we just
-          // created and immediately re-pushes a context. Adopt the new name
-          // as our editing identity now so the follow-up context is
-          // recognised as "the thing I am already editing".
-          saveDraft(apiRef.current, draftKeyRef.current, undefined);
-          saveDraft(
-            apiRef.current,
-            editorDraftKey('macro', 'edit', `${fileRef.current}\u0000${msg.name}`),
-            undefined
-          );
-          editingNameRef.current = msg.name;
-          formDirtyRef.current = false;
-          setStatus({ kind: 'created', name: msg.name, at: Date.now() });
+        case 'updated': {
+          const pending = pendingSaveRef.current;
+          if (!pending || msg.requestId !== pending.requestId || pending.key !== draftKeyRef.current ||
+              msg.name !== pending.name || (msg.type === 'created') !== (pending.mode === 'create')) break;
+          pendingSaveRef.current = null;
+          const hasLaterEdits = editGenerationRef.current !== pending.generation;
+          const nextKey = msg.type === 'created'
+            ? editorDraftKey('macro', 'edit', `${fileRef.current}\u0000${msg.name}`)
+            : pending.key;
+          // A receipt confirms the submitted generation, not everything now visible.
+          // Migrate the complete newer draft before rekeying/remounting the SVG child.
+          if (msg.type === 'created') {
+            saveDraft(apiRef.current, pending.key, undefined);
+            editingNameRef.current = msg.name;
+            macroRevisionRef.current = undefined;
+            setName(msg.name);
+            setPanelMode('edit');
+            draftKeyRef.current = nextKey;
+            setDraftKey(nextKey);
+          }
+          formDirtyRef.current = hasLaterEdits;
+          saveDraft(apiRef.current, nextKey, hasLaterEdits && latestDraftRef.current
+            ? { ...latestDraftRef.current, name: msg.name, originalRevision: macroRevisionRef.current }
+            : undefined);
+          acceptedSaveRef.current = { requestId: pending.requestId, key: nextKey };
+          setStatus({ kind: msg.type, name: msg.name, at: Date.now() });
           break;
-        case 'updated':
-          saveDraft(apiRef.current, draftKeyRef.current, undefined);
-          formDirtyRef.current = false;
-          setStatus({ kind: 'updated', name: msg.name, at: Date.now() });
-          break;
+        }
         case 'duplicate':
           setStatus({ kind: 'duplicate', name: msg.name, message: msg.message });
           break;
@@ -1547,22 +1567,12 @@ export function CreateMacroApp(): React.ReactElement {
     };
   }, []);
 
-  usePersistedDraft(
-    apiRef.current,
-    draftKey,
-    {
-      name,
-      description,
-      sourceEntries,
-      sourceUrls,
-      dynamicArity,
-      macroTags,
-      kind,
-      styles,
-      originalRevision: macroRevisionRef.current
-    } satisfies MacroEditorDraft,
-    draftKey.length > 0 && formDirtyRef.current
-  );
+  const currentDraft: MacroEditorDraft = {
+    name, description, sourceEntries, sourceUrls, dynamicArity, macroTags, kind, styles,
+    originalRevision: macroRevisionRef.current
+  };
+  latestDraftRef.current = currentDraft;
+  usePersistedDraft(apiRef.current, draftKey, currentDraft, draftKey.length > 0 && formDirtyRef.current);
 
   // Auto-dismiss the "saved" toast after 5s (猫猫 req: doesn't linger).
   useEffect(() => {
@@ -1826,8 +1836,12 @@ export function CreateMacroApp(): React.ReactElement {
       styles: styleList,
       tags: trimmedMacroTags
     };
+    const requestId = crypto.randomUUID();
+    pendingSaveRef.current = { requestId, key: draftKeyRef.current, name: exactName,
+      mode: panelMode, generation: editGenerationRef.current };
     setStatus({ kind: 'creating' });
     apiRef.current?.postMessage({
+      requestId,
       type: panelMode === 'edit' ? 'update' : 'create',
       macro,
       expectedRevision: panelMode === 'edit' ? macroRevisionRef.current : undefined

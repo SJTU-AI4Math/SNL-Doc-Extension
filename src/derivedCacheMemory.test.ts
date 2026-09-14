@@ -45,7 +45,9 @@ it.each(['clear', 'cancel', 'new-input'] as const)('revokes late publication on 
   else if (action === 'cancel') controller.abort();
   else await getOrGenerateCache(a, { ...r, input: { entry: 'B' } });
   await writeCache(a, r, { value: 8 });
-  done.resolve({ value: 2 }); expect((await old).name).toBe('AbortError');
+  done.resolve({ value: 2 });
+  if (action === 'new-input') expect(await old).toEqual({ value: 2 });
+  else expect((await old).name).toBe('AbortError');
   expect(await readCache(a, r)).toEqual({ value: 8 }); expect(cacheStatus(a, r.id)).toBe('ready');
 });
 it('rejects bad values and mutated input without publication', async () => {
@@ -57,7 +59,7 @@ it('rejects bad values and mutated input without publication', async () => {
   expect(cacheStatus(a, r.id)).toBe('failed');
   await clearCache(a, r.id); expect(cacheStatus(a, r.id)).toBe('missing');
 });
-it('starts fresh A after A-B-A instead of joining a retired job', async () => {
+it('coalesces live A across A-B-A and renews only its publication authority', async () => {
   const owner = root(), r = request(), a = deferred<number>(), b = deferred<number>();
   const startedA = deferred<void>(), startedB = deferred<void>();
   const oldA = getOrGenerateCache(owner, { ...r, generate: async () => { startedA.resolve(); return { value: await a.promise }; } }).catch(e => e);
@@ -67,9 +69,9 @@ it('starts fresh A after A-B-A instead of joining a retired job', async () => {
   const generate = vi.fn(() => ({ value: 30 }));
   const current = getOrGenerateCache(owner, { ...r, generate });
   b.resolve(20); a.resolve(10);
-  expect(await current).toEqual({ value: 30 }); expect(generate).toHaveBeenCalledTimes(1);
-  expect((await oldA).name).toBe('AbortError'); expect((await oldB).name).toBe('AbortError');
-  expect(await readCache(owner, r)).toEqual({ value: 30 });
+  expect(await current).toEqual({ value: 10 }); expect(generate).not.toHaveBeenCalled();
+  expect(await oldA).toEqual({ value: 10 }); expect(await oldB).toEqual({ value: 20 });
+  expect(await readCache(owner, r)).toEqual({ value: 10 });
 });
 it('bounds aggregate envelope bytes independently of entry count', async () => {
   const owner = root(), r = { id: 'large', version: '1', input: null, validate: (v: unknown): v is string => typeof v === 'string' };

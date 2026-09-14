@@ -75,12 +75,12 @@ it('clearing prevents late publication and permits a fresh same-key task', async
   done.resolve({ value: 2 }); await expect(old).rejects.toMatchObject({ name: 'AbortError' });
   expect((await readCacheArtifact(root, request()))?.value).toEqual({ value: 8 });
 });
-it('a superseded input cannot overwrite a newer result', async () => {
+it('a different input keeps its subscriber result but cannot overwrite a newer result', async () => {
   const root = await workspace(); const ready = deferred<void>(); const done = deferred<{ value: number }>();
   const old = getOrGenerateCache(root, { ...request(), generate: () => { ready.resolve(); return done.promise; } });
   await ready.promise;
   await getOrGenerateCache(root, { ...request(), input: { entry: 'B' } });
-  done.resolve({ value: 2 }); await expect(old).rejects.toMatchObject({ name: 'AbortError' });
+  done.resolve({ value: 2 }); expect(await old).toEqual({ value: 2 });
   expect((await readCacheArtifact(root, request()))?.inputHash).toBe(cacheFingerprint({ entry: 'B' }));
 });
 it('fails closed on mutated input or invalid output without publishing', async () => {
@@ -112,7 +112,7 @@ it.each(['EROFS', 'EIO'])('retains computed data when optional disk persistence 
     expect(await readCacheArtifact(root, r)).toBeUndefined();
   } finally { rename.mockRestore(); }
 });
-it('starts a fresh A generation after A-B-A rather than joining the retired A job', async () => {
+it('coalesces live A across A-B-A and renews only its publication authority', async () => {
   const root = await workspace(); const a = deferred<number>(); const b = deferred<number>();
   const startedA = deferred<void>(); const startedB = deferred<void>();
   const oldA = getOrGenerateCache(root, { ...request(), generate: async () => { startedA.resolve(); return {value:await a.promise}; } }).catch(e => e);
@@ -122,9 +122,9 @@ it('starts a fresh A generation after A-B-A rather than joining the retired A jo
   const fresh = vi.fn(async () => ({value:30}));
   const current = getOrGenerateCache(root, {...request(),generate:fresh}).catch(e => e);
   b.resolve(20); a.resolve(10);
-  expect(await current).toEqual({value:30}); expect(fresh).toHaveBeenCalledTimes(1);
-  expect((await oldA).name).toBe('AbortError'); expect((await oldB).name).toBe('AbortError');
-  expect(await getOrGenerateCache(root, request())).toEqual({value:30});
+  expect(await current).toEqual({value:10}); expect(fresh).not.toHaveBeenCalled();
+  expect(await oldA).toEqual({value:10}); expect(await oldB).toEqual({value:20});
+  expect(await getOrGenerateCache(root, request())).toEqual({value:10});
 });
 it('revokes publication when the final subscriber cancels', async () => {
   const root = await workspace(); const gate = deferred<number>(); const started = deferred<void>();
@@ -180,4 +180,65 @@ it('uses canonical own keys and preserves prototype-like data without input muta
   expect(cacheFingerprint({ a: 1, b: 2 })).toBe(cacheFingerprint({ b: 2, a: 1 }));
   expect(Object.getPrototypeOf(input)).toBe(Object.prototype);
   expect(() => cacheFingerprint({ value: Infinity })).toThrow();
+});
+
+it.each(['disk', 'memory'] as const)('clear revokes all live input jobs, including non-publishers (%s)', async backend => {
+  const dir = await workspace(); const root = backend === 'disk' ? dir : { uri: `memfs://test${dir}` };
+  const a = deferred<number>(), b = deferred<number>(), startedA = deferred<void>(), startedB = deferred<void>();
+  const oldA = getOrGenerateCache(root, { ...request(), generate: async () => { startedA.resolve(); return { value: await a.promise }; } }).catch(e => e);
+  await startedA.promise;
+  const oldB = getOrGenerateCache(root, { ...request(), input: { entry: 'B' }, generate: async () => { startedB.resolve(); return { value: await b.promise }; } }).catch(e => e);
+  await startedB.promise;
+  await clearCache(root, 'ssi');
+  expect(await getOrGenerateCache(root, request())).toEqual({ value: 3 });
+  a.resolve(10); b.resolve(20);
+  expect((await oldA).name).toBe('AbortError'); expect((await oldB).name).toBe('AbortError');
+  expect((await readCacheArtifact(root, request()))?.value).toEqual({ value: 3 });
+});
+
+it.each(['disk', 'memory'] as const)('final cancellation of a non-publisher keeps the other input alive and permits fresh A (%s)', async backend => {
+  const dir = await workspace(); const root = backend === 'disk' ? dir : { uri: `memfs://test${dir}` };
+  const a = deferred<number>(), b = deferred<number>(), startedA = deferred<void>(), startedB = deferred<void>();
+  const controller = new AbortController();
+  const oldA = getOrGenerateCache(root, { ...request(), signal: controller.signal, generate: async () => { startedA.resolve(); return { value: await a.promise }; } }).catch(e => e);
+  await startedA.promise;
+  const currentB = getOrGenerateCache(root, { ...request(), input: { entry: 'B' }, generate: async () => { startedB.resolve(); return { value: await b.promise }; } });
+  await startedB.promise; controller.abort();
+  expect((await oldA).name).toBe('AbortError');
+  const fresh = vi.fn(() => ({ value: 30 }));
+  expect(await getOrGenerateCache(root, request(fresh))).toEqual({ value: 30 });
+  expect(fresh).toHaveBeenCalledTimes(1);
+  a.resolve(10); b.resolve(20); expect(await currentB).toEqual({ value: 20 });
+  expect((await readCacheArtifact(root, request()))?.value).toEqual({ value: 30 });
+});
+
+it.each(['invalid', 'error'] as const)('does not hide %s from a non-publishing computation', async outcome => {
+  const root = await workspace(), ready = deferred<void>(), done = deferred<void>();
+  const old = getOrGenerateCache(root, { ...request(), generate: async () => {
+    ready.resolve(); await done.promise;
+    if (outcome === 'error') throw new Error('upstream failed');
+    return { value: NaN };
+  } });
+  const failure = expect(old).rejects.toThrow(outcome === 'error' ? 'upstream failed' : 'Invalid generated');
+  await ready.promise;
+  await getOrGenerateCache(root, { ...request(), input: { entry: 'B' } });
+  done.resolve(); await failure;
+  expect(cacheStatus(root, 'ssi')).toBe('ready');
+  expect((await readCacheArtifact(root, request()))?.inputHash).toBe(cacheFingerprint({ entry: 'B' }));
+});
+
+it('delivers a live result superseded during rename without leaving its revoked artifact', async () => {
+  const root = await workspace(), visible = deferred<void>(), proceed = deferred<void>();
+  const original = fs.rename;
+  const rename = vi.spyOn(fs, 'rename').mockImplementationOnce(async (from, to) => {
+    await original(from, to); visible.resolve(); await proceed.promise;
+  });
+  try {
+    const a = getOrGenerateCache(root, request());
+    await visible.promise;
+    const b = getOrGenerateCache(root, { ...request(vi.fn(() => ({ value: 20 }))), input: { entry: 'B' } });
+    proceed.resolve();
+    expect(await a).toEqual({ value: 3 }); expect(await b).toEqual({ value: 20 });
+    expect((await readCacheArtifact(root, request()))?.value).toEqual({ value: 20 });
+  } finally { proceed.resolve(); rename.mockRestore(); }
 });

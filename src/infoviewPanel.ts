@@ -728,6 +728,9 @@ export class InfoviewPanel {
         this.readMacroDb(), readMacroKinds(root), readWorkspaceSupportedLanguages(root)
       ]);
       // Dependency generation reuses these exact global reads, not a second scan.
+      // Cache-entry order is not Host-generation order: retired reads must not
+      // acquire shared publication authority after a current read has entered.
+      if (generation !== this.viewGeneration) return;
       const relationshipRead = await readRelationships(root, { entries: entryPool, macros }).then(
         relationships => ({ relationships, error: null as string | null }),
         (error: unknown) => ({ relationships: [], error: error instanceof Error ? error.message : String(error) })
@@ -844,6 +847,7 @@ export class InfoviewPanel {
 
       const closure = readerDependencyClosure(outline, entryPool, macros, relationshipRead.relationships);
       const closureIds = closure.entries.map(entry => entry.id);
+      if (generation !== this.viewGeneration) return;
       const [cachedEntryMetrics, globalPageRank] = await Promise.all([
         readCachedEntryMetrics(cacheRootForWorkspace(root), entryPool, macros, closureIds),
         readReaderPageRank(cacheRootForWorkspace(root), entryPool, relationshipRead, closureIds)
@@ -1012,9 +1016,11 @@ export class InfoviewPanel {
         this.readMacroDb(),
         readMacroKinds(root)
       ]);
+      if (generation !== this.viewGeneration) return;
       const relationshipRead = await readRelationships(root, { entries, macros })
         .then(relationships => ({ relationships, error: null }))
         .catch(error => ({ relationships: [], error: String(error) }));
+      if (generation !== this.viewGeneration) return;
       const [cachedEntryMetrics, globalPageRank] = await Promise.all([
         readCachedEntryMetrics(cacheRootForWorkspace(root), entries, macros, [id]),
         readReaderPageRank(cacheRootForWorkspace(root), entries, relationshipRead, [id])
@@ -1139,6 +1145,7 @@ export class InfoviewPanel {
       let relatedEntries: Array<{ entry: EntryData; kind: EntryKind | null }> = [];
       let relationshipsError: string | undefined;
       let relationships: Awaited<ReturnType<typeof readRelationships>> = [];
+      if (generation !== this.viewGeneration) return;
       try {
         relationships = await readRelationships(root, { entries, macros });
         relationshipSections = groupEntryRelationships(
@@ -1165,6 +1172,7 @@ export class InfoviewPanel {
       }
       const returnRoute = this.entryHistory.at(-1) ?? this.fallbackReturnRoute;
       const relationshipRead = { relationships, error: relationshipsError ?? null };
+      if (generation !== this.viewGeneration) return;
       const [cachedEntryMetrics, globalPageRank] = await Promise.all([
         readCachedEntryMetrics(cacheRootForWorkspace(root), entries, macros, [id]),
         readReaderPageRank(cacheRootForWorkspace(root), entries, relationshipRead, [id])

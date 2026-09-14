@@ -50,7 +50,9 @@ function releaseMemoryState(root: CacheRoot, key: string): void {
   epochs.delete(key); statuses.delete(key);
 }
 const epochs = new Map<string, number>();
-interface CacheJob<T> { promise: Promise<T>; epoch: number; subscribers: number; settled: boolean }
+// Complete-input jobs own computation lifetime. File epochs only grant the
+// latest request publication authority; another input cannot cancel subscribers.
+interface CacheJob<T> { promise: Promise<T>; epoch: number; subscribers: number; settled: boolean; cancelled: boolean }
 const pending = new Map<string, CacheJob<unknown>>();
 const publications = new Map<string, Promise<unknown>>();
 const statuses = new Map<string, CacheStatus>();
@@ -184,17 +186,17 @@ function serial<T>(file: string, operation: () => Promise<T>): Promise<T> {
   void job.finally(() => { if (publications.get(file) === job) publications.delete(file); }).catch(() => undefined);
   return job;
 }
-async function publish<T>(root: CacheRoot, descriptor: CacheDescriptor<T>, value: T, epoch: number): Promise<void> {
+async function publish<T>(root: CacheRoot, descriptor: CacheDescriptor<T>, value: T, epoch: number): Promise<boolean> {
   const file = cacheKey(root, descriptor.id, descriptor.scope);
   if (!descriptor.validate(value)) throw new Error('Invalid generated cache value');
   const text = JSON.stringify({ format: 'snl-derived-cache', schema: 1, generator: descriptor.id,
     version: descriptor.version, library: descriptor.scope?.library ?? null,
     inputHash: cacheFingerprint(descriptor.input), valueHash: cacheFingerprint(value), value });
   if (Buffer.byteLength(text) > MAX_BYTES) throw new Error('Cache output exceeds size limit');
-  await serial(file, async () => {
-    if (epochs.get(file) !== epoch) throw abortError();
+  return serial(file, async () => {
+    if (epochs.get(file) !== epoch) return false;
     if (typeof root !== 'string') {
-      storeMemory(file, text); statuses.set(file, 'ready'); return;
+      storeMemory(file, text); statuses.set(file, 'ready'); return true;
     }
     await guard(root, descriptor.id, descriptor.scope, true);
     const temporary = path.join(path.dirname(file), `.${randomUUID()}.tmp`);
@@ -202,15 +204,16 @@ async function publish<T>(root: CacheRoot, descriptor: CacheDescriptor<T>, value
       const handle = await fs.open(temporary, 'wx', 0o600);
       try { await handle.writeFile(text + '\n'); await handle.sync(); } finally { await handle.close(); }
       await guard(root, descriptor.id, descriptor.scope, false);
-      if (epochs.get(file) !== epoch) throw abortError();
+      if (epochs.get(file) !== epoch) return false;
       await fs.rename(temporary, file);
       if (epochs.get(file) !== epoch) {
         // Publication and clear are serialized: no newer local publisher can
         // have written this file before this operation releases the queue.
         await fs.unlink(file).catch(error => { if (error.code !== 'ENOENT') throw error; });
-        throw abortError();
+        return false;
       }
       statuses.set(file, 'ready');
+      return true;
     } finally { await fs.unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
   });
 }
@@ -219,7 +222,7 @@ export async function writeCache<T>(root: CacheRoot, descriptor: CacheDescriptor
   root = typeof root === 'string' ? root : { uri: root.uri };
   const file = cacheKey(root, descriptor.id, descriptor.scope);
   const epoch = nextEpoch(root, file);
-  try { await publish(root, descriptor, value, epoch); }
+  try { if (!await publish(root, descriptor, value, epoch)) throw abortError(); }
   finally { releaseMemoryState(root, file); }
 }
 
@@ -231,6 +234,7 @@ function subscribe<T>(job: CacheJob<T>, file: string, key: string, signal?: Abor
       if (finished) return false;
       finished = true; signal?.removeEventListener('abort', abort); --job.subscribers;
       if (cancelled && job.subscribers === 0 && !job.settled) {
+        job.cancelled = true;
         if (pending.get(key) === job) pending.delete(key);
         if (epochs.get(file) === job.epoch) {
           epochs.set(file, file.startsWith('\0uri:') ? ++memoryEpoch : job.epoch + 1); statuses.set(file, 'missing');
@@ -252,32 +256,41 @@ export function getOrGenerateCache<T>(root: CacheRoot, request: CacheRequest<T>)
   const inputHash = cacheFingerprint(request.input);
   const key = `${file}\0${request.version}\0${inputHash}`;
   const existing = pending.get(key);
-  if (existing && existing.epoch === epochs.get(file)) return subscribe(existing as CacheJob<T>, file, key, request.signal);
+  if (existing && !existing.cancelled) {
+    // A-B-A reuses the still-subscribed A computation, not a duplicate job.
+    if (existing.epoch !== epochs.get(file)) existing.epoch = nextEpoch(root, file);
+    return subscribe(existing as CacheJob<T>, file, key, request.signal);
+  }
   const epoch = nextEpoch(root, file);
   const job = Promise.resolve().then(async () => {
     const cached = await readCache(root, request);
     if (cacheFingerprint(request.input) !== inputHash) throw new Error('Cache input changed during lookup');
-    if (epochs.get(file) !== epoch) throw abortError();
-    if (cached !== undefined) { statuses.set(file, 'ready'); return cached; }
-    statuses.set(file, 'generating');
+    if (active.cancelled) throw abortError();
+    if (cached !== undefined) {
+      if (epochs.get(file) === active.epoch) statuses.set(file, 'ready');
+      return cached;
+    }
+    if (epochs.get(file) === active.epoch) statuses.set(file, 'generating');
     const result = await request.generate();
     if (cacheFingerprint(request.input) !== inputHash) throw new Error('Cache input changed during generation');
+    if (active.cancelled) throw abortError();
     try {
-      await publish(root, request, result, epoch);
+      // Validation still runs even when this job no longer owns publication.
+      await publish(root, request, result, active.epoch);
     } catch (error) {
       // Disk persistence is optional. Validation, identity, missing-Library and
       // cancellation failures are not storage degradation and must still reject.
       const code = (error as NodeJS.ErrnoException).code;
       if (!['EACCES', 'EPERM', 'EROFS', 'ENOSPC', 'EDQUOT', 'EMFILE', 'EIO'].includes(code ?? '')) throw error;
-      if (epochs.get(file) !== epoch) throw abortError();
-      statuses.set(file, 'failed');
+      if (epochs.get(file) === active.epoch) statuses.set(file, 'failed');
     }
+    if (active.cancelled) throw abortError();
     // Return detached JSON, identical to a subsequent disk read.
     return JSON.parse(JSON.stringify(result)) as T;
   });
-  const active: CacheJob<T> = { promise: job, epoch, subscribers: 0, settled: false };
+  const active: CacheJob<T> = { promise: job, epoch, subscribers: 0, settled: false, cancelled: false };
   pending.set(key, active);
-  void job.catch(() => { if (epochs.get(file) === epoch) statuses.set(file, 'failed'); });
+  void job.catch(() => { if (epochs.get(file) === active.epoch) statuses.set(file, 'failed'); });
   void job.finally(() => { active.settled = true; if (pending.get(key) === active) pending.delete(key); releaseMemoryState(root, file); }).catch(() => undefined);
   return subscribe(active, file, key, request.signal);
 }
@@ -291,7 +304,9 @@ export async function clearCache(root: CacheRoot, id: string, scope?: CacheScope
   root = typeof root === 'string' ? root : { uri: root.uri };
   const file = cacheKey(root, id, scope);
   nextEpoch(root, file);
-  for (const key of pending.keys()) if (key.startsWith(file + '\0')) pending.delete(key);
+  for (const [key, job] of pending) if (key.startsWith(file + '\0')) {
+    job.cancelled = true; pending.delete(key);
+  }
   statuses.set(file, 'missing');
   try {
     await serial(file, async () => {

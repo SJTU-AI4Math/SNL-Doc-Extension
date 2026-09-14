@@ -179,6 +179,43 @@ vi.mock('./snlDoc', async (importOriginal) => {
 
 const extensionUri = { path: '/ext' } as never;
 
+describe('canonical Entry tags CRUD', () => {
+  const root = { path: '/ws', toString: () => 'file:///ws' } as never;
+  const tags = ['', ' a,b ', '中文', '__proto__', 'constructor', 'a\\b', 'a', 'a'];
+  it('round-trips exact tags, preserves omitted updates/moves and clears explicitly', async () => {
+    seedEntryTransactionTopology();
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+    const value = { ...newEntry('tagged', 'logic'), tags };
+    expect((await actual.addEntry(root, value)).status).toBe('ok');
+    let saved = (await actual.readEntries(root)).find(e => e.id === value.id)!;
+    expect(saved).toMatchObject({ tags });
+    expect((await actual.updateEntry(root, value.id, { ...newEntry(value.id, '_unpackaged'), title: 'Metadata edit' }, actual.entityRevision(saved))).status).toBe('updated');
+    saved = (await actual.readEntries(root)).find(e => e.id === value.id)!;
+    expect(saved).toMatchObject({ tags, package: '_unpackaged' });
+    const replacement = ['changed', '', 'CHANGED', '__proto__'];
+    expect((await actual.updateEntry(root, value.id, { ...saved, tags: replacement }, actual.entityRevision(saved))).status).toBe('updated');
+    saved = (await actual.readEntries(root)).find(e => e.id === value.id)!;
+    expect(saved.tags).toEqual(replacement);
+    expect((await actual.updateEntry(root, value.id, { ...saved, tags: [] }, actual.entityRevision(saved))).status).toBe('updated');
+    expect((await actual.readEntries(root)).find(e => e.id === value.id)).toMatchObject({ tags: [] });
+  });
+  it.each([null, 'csv,tags', ['ok', 1], [null]].map(tags => [tags]))('rejects malformed tags %j before create/update writes', async tags => {
+    seedEntryTransactionTopology();
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+    const before = JSON.stringify([...jsonByPath]);
+    expect((await actual.addEntry(root, { ...newEntry('bad', 'logic'), tags } as never)).status).toBe('invalid');
+    expect(state.writes).toEqual([]);
+    expect(JSON.stringify([...jsonByPath])).toBe(before);
+    const created = await actual.addEntry(root, newEntry('valid', 'logic'));
+    if (created.status !== 'ok') throw Error('create failed');
+    state.writes.length = 0;
+    const current = JSON.stringify([...jsonByPath]);
+    expect((await actual.updateEntry(root, 'valid', { ...newEntry('valid', 'logic'), tags } as never, created.revision)).status).toBe('invalid');
+    expect(state.writes).toEqual([]);
+    expect(JSON.stringify([...jsonByPath])).toBe(current);
+  });
+});
+
 describe('Pointer write-side synchronization', () => {
   it('notifies after create/update/delete succeed, with canonical bytes already visible', async () => {
     seedEntryTransactionTopology();

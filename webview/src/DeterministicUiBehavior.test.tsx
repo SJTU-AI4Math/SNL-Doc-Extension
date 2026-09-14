@@ -179,6 +179,8 @@ describe('graph keyboard accessibility', () => {
       ],
       edges: [{ id: 'r', from: 'a', to: 'b', label: 'uses', isDependency: false, isAtomic: null }]
     });
+    fireEvent.click(screen.getByTestId('graph-filter-toggle'));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show relationships' }));
     const node = screen.getByRole('button', { name: 'Entry Alpha (a)' });
     const edge = screen.getByRole('button', { name: 'Relationship uses: a to b' });
     send({ type: 'graph', nodes: null });
@@ -224,6 +226,8 @@ describe('graph keyboard accessibility', () => {
     const alpha = { id: 'a', packageId: 'alpha', title: 'Alpha', kind: 'Theorem', kindId: 'theorem', coloring: { light: { stroke: '#fff', background: '#000' }, dark: { stroke: '#fff', background: '#000' } } };
     const zeta = { id: 'z', packageId: 'zeta', title: 'Zeta', kind: 'Lemma', kindId: 'lemma', coloring: { light: { stroke: '#fff', background: '#000' }, dark: { stroke: '#fff', background: '#000' } } };
     send(graph([zeta, alpha]));
+    fireEvent.click(screen.getByTestId('graph-filter-toggle'));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show relationships' }));
 
     const alphaLane = screen.getByRole('group', { name: 'Package alpha: 1 entry' });
     const zetaLane = screen.getByRole('group', { name: 'Package zeta: 1 entry' });

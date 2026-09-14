@@ -65,17 +65,23 @@ const sha256 = p => crypto.createHash('sha256').update(fs.readFileSync(p)).diges
           return { x, y, text: e.textContent, path: e.getAttribute('data-source-path'), actual: actual?.outerHTML, ownerPath: owner?.getAttribute('data-source-path'), targetHit: !!actual && (actual === e || e.contains(actual)), emptyVlist: !!actual?.matches('.vlist:has(> span:only-child:empty)'), pointerEvents: actual && getComputedStyle(actual).pointerEvents, surface: e.closest('.snl-entry-overflow-surface') !== null };
         });
         await page.mouse.move(hit.x, hit.y);
-        // The inst references lack binder-declaration highlighting even at the
-        // unobstructed baseline target. This regression repairs hit-testing,
-        // not that separate behavior; keep binder checks on the other Entries.
-        const requireBinder = id !== 'partialOrderOfSO';
-        let highlighted = null;
-        if (requireBinder) {
-          highlighted = false;
-          try { await page.waitForFunction(() => document.querySelectorAll('.snl-binder-decl').length > 0, {}, { timeout: 3000 }); highlighted = true; } catch {}
-        }
-        out.bindings.push({ id, index: i, ...hit, requireBinder, highlighted });
-        if (!hit.targetHit || (requireBinder && !highlighted)) out.failures.push({ id, index: i, path: hit.path, targetHit: hit.targetHit, highlighted });
+        const requireBinder = true;
+        const expectedDomainPath = id === 'partialOrderOfSO' ? '0.2.1' : null;
+        let highlighted = false;
+        try {
+          await page.waitForFunction(({ expectedDomainPath }) => {
+            const marks = [...document.querySelectorAll('[data-entry-body] .snl-binder-decl')];
+            return marks.some(e => {
+              const r = e.getBoundingClientRect();
+              return (!expectedDomainPath || e.getAttribute('data-tree-path') === expectedDomainPath) &&
+                r.width > 0 && r.height > 0 && getComputedStyle(e).visibility !== 'hidden';
+            });
+          }, { expectedDomainPath }, { timeout: 3000 });
+          highlighted = true;
+        } catch {}
+        const highlightedPaths = await page.locator('[data-entry-body] .snl-binder-decl').evaluateAll(es => es.map(e => e.getAttribute('data-tree-path')));
+        out.bindings.push({ id, index: i, ...hit, requireBinder, expectedDomainPath, highlighted, highlightedPaths });
+        if (!hit.targetHit || !highlighted || (expectedDomainPath && hit.path !== '0.2.0')) out.failures.push({ id, index: i, path: hit.path, expectedDomainPath, targetHit: hit.targetHit, highlighted, highlightedPaths });
       }
     }
     // Guard the precise empty-only boundary using the production CSS cascade.

@@ -38,11 +38,11 @@ const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 const keys = (v: Record<string, unknown>, expected: string[]): boolean => Object.keys(v).length === expected.length && expected.every(k => Object.hasOwn(v, k));
 
 /** Only the generated M/A/L/A/Z sector grammar, not arbitrary SVG path text. */
-function isSectorPath(value: unknown): boolean {
-  if (typeof value !== 'string') return false;
+function sectorPathNumbers(value: unknown): number[][] | undefined {
+  if (typeof value !== 'string') return undefined;
   const groups = value.match(/^M (.+) A (.+) L (.+) A (.+) Z$/);
-  if (!groups) return false;
-  return groups.slice(1).every((group, index) => {
+  if (!groups) return undefined;
+  const valid = groups.slice(1).every((group, index) => {
     const tokens = group.trim().split(/\s+/);
     const arc = index === 1 || index === 3;
     if (tokens.length !== (arc ? 7 : 2) || !tokens.every(token =>
@@ -51,6 +51,38 @@ function isSectorPath(value: unknown): boolean {
     return !arc || (Number(tokens[0]) >= 0 && Number(tokens[1]) >= 0 &&
       /^[01]$/.test(tokens[3]) && /^[01]$/.test(tokens[4]));
   });
+  return valid ? groups.slice(1).map(group => group.trim().split(/\s+/).map(Number)) : undefined;
+}
+
+// Absolute sub-pixel slack plus bounded floating-point roundoff at large
+// coordinates; never a percentage tolerance that could admit distant labels.
+const sameCoordinate = (actual: number, expected: number): boolean =>
+  Math.abs(actual - expected) <= 1e-7 + 32 * Number.EPSILON * Math.max(Math.abs(actual), Math.abs(expected));
+
+/** Check redundant render fields, not the expensive layout algorithm. The inner
+ * radius is encoded only in the path; all its endpoints must use that same radius
+ * about the declared radial centre. Outer radius and angles come from the sector. */
+function consistentSector(sector: Record<string, unknown>, radial: Record<string, unknown>): boolean {
+  const groups = sectorPathNumbers(sector.path);
+  if (!groups) return false;
+  const start = sector.startAngle as number, end = sector.endAngle as number;
+  const outer = sector.outerRadius as number, inner = groups[3][0];
+  if (inner > outer) return false;
+  const polar = (angle: number, radius: number): number[] => [
+    (radial.centerX as number) + Math.cos(angle) * radius,
+    (radial.centerY as number) + Math.sin(angle) * radius
+  ];
+  const labelAngle = (start + end) / 2, label = polar(labelAngle, outer);
+  if (!sameCoordinate(sector.labelAngle as number, labelAngle) ||
+      !sameCoordinate(sector.labelX as number, label[0]) ||
+      !sameCoordinate(sector.labelY as number, label[1])) return false;
+  const large = end - start > Math.PI ? 1 : 0;
+  const expected = [polar(start, outer), [outer, outer, 0, large, 1, ...polar(end, outer)],
+    polar(end, inner), [inner, inner, 0, large, 0, ...polar(start, inner)]];
+  return groups.every((group, i) => group.every((number, j) =>
+    // Rotation and arc flags are discrete generator fields, not coordinates.
+    (i === 1 || i === 3) && j >= 2 && j <= 4
+      ? number === expected[i][j] : sameCoordinate(number, expected[i][j])));
 }
 
 /** Cache bytes can never inject titles, styles, identities, dangling routes, nonfinite
@@ -115,7 +147,7 @@ export function isGraphLayout(value: unknown, input: GraphLayoutInput): value is
           !finite(sector.outerRadius) || sector.outerRadius <= 0 ||
           !['outerRadius','labelX','labelY'].every(k => typeof sector[k] === 'number' && Number.isFinite(sector[k]) && Math.abs(sector[k] as number) <= 1e9) ||
           !['startAngle','endAngle','labelAngle'].every(k => typeof sector[k] === 'number' && Number.isFinite(sector[k]) && Math.abs(sector[k] as number) <= Math.PI*4) ||
-          !isSectorPath(sector.path)) return false;
+          !consistentSector(sector, radial as Record<string, unknown>)) return false;
     }
     seenPackages.add(c.packageId);
   }

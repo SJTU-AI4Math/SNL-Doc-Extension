@@ -306,19 +306,19 @@
       "style": ""
     },
     {
-      "id": "concept",
-      "name": "Concept",
       "coloring": {
-        "light": {
-          "stroke": "#6a1b9a",
-          "background": "#f3e5f5"
-        },
         "dark": {
-          "stroke": "#6a1b9a",
-          "background": "#f3e5f5"
+          "background": "#311b3b",
+          "stroke": "#ce93d8"
+        },
+        "light": {
+          "background": "#f3e5f5",
+          "stroke": "#6a1b9a"
         }
       },
       "defaultCounterName": "",
+      "id": "concept",
+      "name": "Concept",
       "style": ""
     },
     {

@@ -63,7 +63,8 @@ describe('Library edit whole-draft save', () => {
 
     const titleInput = screen.getByLabelText('Library title');
     fireEvent.change(titleInput, { target: { value: 'Local Algebra' } });
-    fireEvent.keyDown(titleInput, { key: 'Enter' });
+    // Ordinary editing stays local; Enter is an explicit whole-draft Save.
+    fireEvent.keyDown(titleInput, { key: 'ArrowRight' });
     expect(postMessage).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand counters' }));

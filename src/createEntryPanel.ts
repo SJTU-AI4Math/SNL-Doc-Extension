@@ -142,8 +142,10 @@ export class CreateEntryPanel {
     );
   }
 
-  public static createPackageOrShow(extensionUri: vscode.Uri): void {
-    CreateEntryPanel.open(extensionUri, 'create', '', '', '_unpackaged', true);
+  public static createPackageOrShow(extensionUri: vscode.Uri, seedId?: string): void {
+    CreateEntryPanel.open(
+      extensionUri, 'create', '', seedId ?? '', '_unpackaged', true
+    );
   }
 
   public static editOrShow(extensionUri: vscode.Uri, id: string): void {

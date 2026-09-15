@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 let workspacePath = '';
 let seedWorkspace: () => Promise<void>;
 let libraryMode = false;
 const phaseReadCounts: Array<Record<string, number>> = [];
+const readStacks: Record<string, string[]> = {};
 import { entryEntityPath, packageManifestPath } from './entityStorage';
 
 /**
@@ -250,6 +251,7 @@ vi.mock('vscode', async () => {
         readFile: async (uri: { path: string }) => {
           const name = uri.path.split('/').pop() ?? '';
           readCounts[name] = (readCounts[name] ?? 0) + 1;
+          if (uri.path.includes('/packages/')) (readStacks[name] ??= []).push(new Error('Package read').stack ?? '');
           inFlight += 1;
           maxConcurrent = Math.max(maxConcurrent, inFlight);
           await new Promise((resolve) => setTimeout(resolve, 5));
@@ -278,6 +280,7 @@ const extensionUri = { path: '/ext', fsPath: '/ext', toString: () => '/ext' } as
 function reset(): void {
   for (const key of Object.keys(readCounts)) delete readCounts[key];
   for (const key of Object.keys(directoryReadCounts)) delete directoryReadCounts[key];
+  for (const key of Object.keys(readStacks)) delete readStacks[key];
   inFlight = 0;
   maxConcurrent = 0;
   entityMode = false;
@@ -472,13 +475,41 @@ describe('infoview panel read cost', () => {
     // The lazy body and complete workspace are independent read epochs.
     // Neither epoch may reread an authored file; pin both, not their sum.
     expect(phaseReadCounts).toHaveLength(1);
-    for (const counts of [...phaseReadCounts, readCounts]) for (const [name, count] of Object.entries(counts)) {
+    for (const [phase, counts] of [...phaseReadCounts, readCounts].entries()) for (const [name, count] of Object.entries(counts)) {
       // config.json legitimately backs several independent catalogs
       // (entry_kinds / macro_kinds / active packages); everything else must
       // be read exactly once per push.
       if (name === 'config.json') continue;
-      expect(count, `${name} read ${count}x`).toBe(1);
+      expect(count, `${phase === 0 ? 'body' : 'global'}: ${name} read ${count}x\n${readStacks[name]?.join('\n') ?? ''}`).toBe(1);
     }
+  });
+
+  it('reads a Package once per body operation and rejects changed warm-index authority', async () => {
+    libraryMode = true;
+    await seedWorkspace();
+    const { LibraryBodyHost } = await import('./libraryBodyHost');
+    const root = { scheme: 'file', path: workspacePath, fsPath: workspacePath, toString: () => `file://${workspacePath}` } as never;
+    const host = new LibraryBodyHost();
+    const manifestPath = packageManifestPath('logic');
+    const manifestName = manifestPath.split('/').pop()!;
+    for (let operation = 0; operation < 2; operation++) {
+      for (const key of Object.keys(readCounts)) delete readCounts[key];
+      const body = await host.read(root, LIBRARY);
+      expect(body.entries.map(entry => entry.id)).toEqual(['e1']);
+      expect(readCounts[manifestName]).toBe(1);
+    }
+    // No watcher notification: a new operation must still read and compare
+    // the owner, not reuse the previous operation's authoritative bytes.
+    await writeFile(join(workspacePath, '.SNL_Doc', manifestPath), JSON.stringify({
+      format: 'snl-package', version: 1, schema_version: 2,
+      id: 'logic', name: 'Changed', description: '', entry_ids: ['e1', 'e2']
+    }));
+    for (const key of Object.keys(readCounts)) delete readCounts[key];
+    await expect(host.read(root, LIBRARY)).rejects.toThrow(/changed since identity indexing/);
+    expect(readCounts[manifestName]).toBe(1);
+    for (const key of Object.keys(readCounts)) delete readCounts[key];
+    expect((await host.read(root, LIBRARY)).entries.map(entry => entry.id)).toEqual(['e1']);
+    expect(readCounts[manifestName]).toBe(1);
   });
 
   it('overlaps the independent reads of a library outline', async () => {

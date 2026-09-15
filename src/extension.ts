@@ -92,6 +92,8 @@ const UI_MESSAGES = defineHostMessages(
     selectEntryPackageTitle: 'Create Entry',
     selectEntryPackagePlaceholder: 'Select an Entry Package for the new Entry',
     unpackagedEntryPackage: 'Unpackaged (_unpackaged)',
+    createNewEntryPackage: '＋ Create new Entry Package…',
+    createNewEntryPackageDescription: 'Create it here, then continue with the new Entry',
     listPackagesFailed: 'Failed to list macro packages: {error}',
     noActivePackages: 'No active macro packages. Create one first from the Dashboard.',
     selectPackagePlaceholder: 'Select package for the new macro',
@@ -169,6 +171,8 @@ const UI_MESSAGES = defineHostMessages(
     selectEntryPackageTitle: '创建条目',
     selectEntryPackagePlaceholder: '选择新条目所属的条目包',
     unpackagedEntryPackage: '未归入条目包（_unpackaged）',
+    createNewEntryPackage: '＋ 新建条目包…',
+    createNewEntryPackageDescription: '在此创建，然后继续创建新条目',
     listPackagesFailed: '列出宏包失败：{error}',
     noActivePackages: '没有活动的宏包。请先从仪表板创建一个。',
     selectPackagePlaceholder: '选择新宏所属的包',
@@ -747,7 +751,10 @@ export function activate(context: vscode.ExtensionContext): void {
         }));
         return;
       }
-      type EntryPackagePick = vscode.QuickPickItem & { packageId: string };
+      type EntryPackagePick = vscode.QuickPickItem & {
+        packageId?: string;
+        createNew?: true;
+      };
       const items: EntryPackagePick[] = [
         {
           label: t('unpackagedEntryPackage'),
@@ -760,13 +767,23 @@ export function activate(context: vscode.ExtensionContext): void {
             label: name || id,
             description: `${id} · ${entryCount}`,
             packageId: id
-          }))
+          })),
+        {
+          label: t('createNewEntryPackage'),
+          description: t('createNewEntryPackageDescription'),
+          createNew: true
+        }
       ];
       const chosen = await vscode.window.showQuickPick(items, {
         title: t('selectEntryPackageTitle'),
         placeHolder: t('selectEntryPackagePlaceholder')
       });
       if (!chosen) return;
+      if (chosen.createNew) {
+        CreateEntryPanel.createPackageOrShow(context.extensionUri, seed);
+        return;
+      }
+      if (!chosen.packageId) return;
       CreateEntryPanel.createOrShow(context.extensionUri, seed, chosen.packageId);
     }
   );

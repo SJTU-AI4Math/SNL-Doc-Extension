@@ -197,6 +197,28 @@ describe('endpoint-only radial edge paths', () => {
 });
 
 describe('endpoint-only rectangular edge paths', () => {
+  it('keeps both endpoint tangents vertical for a short edge', () => {
+    const path = edgePath(node(20, 10), node(180, 180), []);
+    const curves = cubics(path.d);
+    expect(curves).toHaveLength(1);
+    const [curve] = curves;
+    expect(curve.c1.x).toBe(70);
+    expect(curve.c2.x).toBe(230);
+    expect(curve.end).toEqual({ x: 230, y: 180 });
+    expect(path.d).not.toMatch(/NaN|Infinity/);
+    expectReverse(path.d, edgePath(node(180, 180), node(20, 10), []).d);
+  });
+  it('keeps both tangents vertical when the anchors intrinsically share x', () => {
+    const path = edgePath(node(20, 10), node(20, 180), []);
+    const curves = cubics(path.d);
+    expect(curves).toHaveLength(1);
+    const [aligned] = curves;
+    expect(aligned.c1.x).toBe(70);
+    expect(aligned.c2.x).toBe(70);
+    expect(aligned.end).toEqual({ x: 70, y: 180 });
+    expect(path.d).not.toMatch(/NaN|Infinity/);
+    expectReverse(path.d, edgePath(node(20, 180), node(20, 10), []).d);
+  });
   it.each([undefined, shapes])('uses one upward cubic from lower top to upper bottom, ignoring all dummies (%j)', style => {
     const lower = node(20, 300), upper = node(220, 10);
     const path = edgePath(lower, upper, junk, style);

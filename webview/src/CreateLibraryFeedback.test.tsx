@@ -206,7 +206,7 @@ describe('Create Library feedback', () => {
       ]
     });
 
-    expect(screen.queryByRole('button', { name: /copy entry id/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /copy entry id/i }).getAttribute('title')).toBe('entry-one');
     expect(screen.queryByText('Entry ID indexed by node n_1')).toBeNull();
     const entryId = screen.getByRole('combobox', { name: 'Entry id' }) as HTMLInputElement;
     const entryIdEditor = entryId.closest('[data-testid="outline-entry-id-slot"]');

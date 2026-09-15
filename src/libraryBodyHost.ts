@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { firstWorkspaceFolder, installSnlDocWatcher } from './panelUtil';
 import { EntryIdentityIndex, StaleEntryIdentityIndexError } from './entryIdentityIndex';
 import { createLibraryPointReadSession } from './libraryPointRead';
@@ -42,6 +43,23 @@ export function installLibraryWatcher(
 /** One panel lifetime. Identity metadata is cached; bodies and misses never are.
  * Dependencies are authoritative only after a successful settled body request. */
 export class LibraryBodyHost {
+  // Only coalesce provider reads within one body/lookup operation. A warm
+  // identity index still revalidates owners against fresh bytes next time.
+  private readonly operationReads = new AsyncLocalStorage<Map<string, Promise<Uint8Array>>>();
+
+  private readFile(base: vscode.Uri, path: string): Promise<Uint8Array> {
+    const uri = vscode.Uri.joinPath(base, path);
+    const reads = this.operationReads.getStore();
+    if (!reads) return Promise.resolve(vscode.workspace.fs.readFile(uri));
+    const key = uri.toString(true);
+    let pending = reads.get(key);
+    if (!pending) {
+      pending = Promise.resolve().then(() => vscode.workspace.fs.readFile(uri));
+      reads.set(key, pending);
+    }
+    return pending;
+  }
+
   private index?: EntryIdentityIndex;
   private root?: vscode.Uri;
   private generation = 0;
@@ -73,7 +91,7 @@ export class LibraryBodyHost {
       this.retire(); this.root = root;
       const base = vscode.Uri.joinPath(root, '.SNL_Doc');
       this.index = new EntryIdentityIndex(base.toString(true), {
-        readFile: path => Promise.resolve(vscode.workspace.fs.readFile(vscode.Uri.joinPath(base, path))),
+        readFile: path => this.readFile(base, path),
         readDirectory: path => Promise.resolve(vscode.workspace.fs.readDirectory(vscode.Uri.joinPath(base, path)))
       });
     }
@@ -81,6 +99,10 @@ export class LibraryBodyHost {
   }
 
   async lookup(root: vscode.Uri, id: string): Promise<EntryData | null> {
+    return this.operationReads.run(new Map(), () => this.lookupEntry(root, id));
+  }
+
+  private async lookupEntry(root: vscode.Uri, id: string): Promise<EntryData | null> {
     const index = this.bind(root);
     const generation = this.generation;
     const session = await createLibraryPointReadSession(index);
@@ -90,6 +112,10 @@ export class LibraryBodyHost {
   }
 
   async read(root: vscode.Uri, slug: string) {
+    return this.operationReads.run(new Map(), () => this.readBody(root, slug));
+  }
+
+  private async readBody(root: vscode.Uri, slug: string) {
     const index = this.bind(root);
     const generation = ++this.generation;
     this.pending = true;

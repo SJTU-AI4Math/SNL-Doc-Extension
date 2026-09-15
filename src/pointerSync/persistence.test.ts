@@ -81,7 +81,7 @@ it('rejects malformed ranges, pointer priorities, unknown diagnostics, and dupli
   await fs.writeFile(path.join(root, 'x'), 'a\nb');
   const index = await buildPointerIndex(root, [{ id: 'a', pointer: { file: 'x', mode: 'lines', line: 1 } }]);
   await fs.mkdir(path.join(root, '.SNL_Doc/.cache/pointer-inverse'), { recursive: true });
-  const cachePath = path.join(root, '.SNL_Doc', '.cache/pointer-inverse/result.json');
+
   for (const mutate of [
     (value: any) => { value.files.x.entries[0].resolution.scope.startColumn = 0; },
     (value: any) => { value.files.x.entries[0].resolution.scope.endLine = -1; },
@@ -102,7 +102,7 @@ it('rejects malformed ranges, pointer priorities, unknown diagnostics, and dupli
     const malformed = JSON.parse(JSON.stringify(index));
     mutate(malformed);
     expect(isPointerIndex(malformed)).toBe(false);
-    await fs.writeFile(cachePath, JSON.stringify(malformed));
+    await storeEnvelope(malformed);
     expect(await readPointerIndex(root)).toBeUndefined();
     await expect(writePointerIndex(root, malformed)).rejects.toThrow('Invalid Pointer index');
   }

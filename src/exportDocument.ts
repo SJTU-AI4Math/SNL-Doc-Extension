@@ -96,9 +96,12 @@ export function rewriteBundledCss(css: string): {
   const rewritten = withoutLegacy.replace(
     /url\(\.\/([^)'"]+\.(?:woff2|woff|ttf))\)/g,
     (_match, name: string) => {
-      // Bundle names are `<entry>-KaTeX_Main-Regular-<hash>.woff2`; drop the
-      // entry prefix so the export is not tied to which webview built it.
-      const exportName = name.replace(/^[a-zA-Z]+-(?=KaTeX_)/, '');
+      // Bundled document fonts are named `<entry>-<family>-<hash>.woff2`;
+      // drop the entry prefix so exports are independent of their webview.
+      const exportName = name.replace(
+        /^[a-zA-Z]+-(?=(?:KaTeX_|noto-serif-sc-))/,
+        ''
+      );
       const exportPath = `fonts/${exportName}`;
       fonts.set(name, exportPath);
       return `url(./${exportPath})`;

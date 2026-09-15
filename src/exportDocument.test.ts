@@ -43,6 +43,19 @@ describe('rewriteBundledCss', () => {
     ]);
   });
 
+  it('exports bundled SNL CJK font subsets without a webview entry prefix', () => {
+    const { css, fontFiles } = rewriteBundledCss(
+      '@font-face{font-family:"SNL Noto Serif SC";src:url(./entryInfoview-noto-serif-sc-42-400-normal-abc123.woff2) format("woff2")}'
+    );
+    expect(css).toContain('url(./fonts/noto-serif-sc-42-400-normal-abc123.woff2)');
+    expect(fontFiles).toEqual([
+      {
+        bundleName: 'entryInfoview-noto-serif-sc-42-400-normal-abc123.woff2',
+        exportPath: 'fonts/noto-serif-sc-42-400-normal-abc123.woff2'
+      }
+    ]);
+  });
+
   it('collects each font once even when several formats appear', () => {
     const { fontFiles } = rewriteBundledCss(
       'url(./main-KaTeX_AMS-Regular-x.woff2) url(./main-KaTeX_AMS-Regular-x.woff2) url(./main-KaTeX_AMS-Regular-y.ttf)'

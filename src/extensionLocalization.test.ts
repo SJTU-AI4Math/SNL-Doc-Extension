@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   showQuickPick: vi.fn(),
   executeCommand: vi.fn(),
   createEntryOrShow: vi.fn(),
+  createEntryInlinePackageOrShow: vi.fn(),
   createEntryPackageOrShow: vi.fn(),
   initSnlDoc: vi.fn(),
   deleteEntry: vi.fn(),
@@ -49,7 +50,10 @@ vi.mock('./createEntryKindPanel', () => ({ CreateEntryKindPanel: {} }));
 vi.mock('./initMacroKindsPanel', () => ({ InitMacroKindsPanel: {} }));
 vi.mock('./createMacroKindPanel', () => ({ CreateMacroKindPanel: {} }));
 vi.mock('./createEntryPanel', () => ({
-  CreateEntryPanel: { createOrShow: mocks.createEntryOrShow }
+  CreateEntryPanel: {
+    createOrShow: mocks.createEntryOrShow,
+    createPackageOrShow: mocks.createEntryInlinePackageOrShow
+  }
 }));
 vi.mock('./createEntryPackagePanel', () => ({
   CreateEntryPackagePanel: { createOrShow: mocks.createEntryPackageOrShow }
@@ -193,6 +197,55 @@ describe('extension host UI localization', () => {
       'seed-entry',
       'notes'
     );
+  });
+
+  it('offers a new Entry Package from the create-Entry Package picker and preserves the seed', async () => {
+    mocks.readEntryPackages.mockResolvedValue([
+      { id: 'core', name: 'Core', description: '', entryCount: 2 }
+    ]);
+    mocks.showQuickPick.mockImplementation(async (items: Array<Record<string, unknown>>) =>
+      items.find((item) => item.createNew === true)
+    );
+
+    await command('snlDoc.createEntry')('seed-entry');
+
+    const [items] = mocks.showQuickPick.mock.calls.at(-1)!;
+    expect(items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: '＋ 新建条目包…', createNew: true })
+    ]));
+    expect(mocks.createEntryInlinePackageOrShow).toHaveBeenCalledWith(
+      (context as unknown as { extensionUri: unknown }).extensionUri,
+      'seed-entry'
+    );
+    expect(mocks.createEntryOrShow).not.toHaveBeenCalled();
+  });
+
+  it('forwards the inline seed through the real panel helper, with an empty default', async () => {
+    const { CreateEntryPanel } = await vi.importActual<typeof import('./createEntryPanel')>('./createEntryPanel');
+    const panel = CreateEntryPanel as unknown as {
+      open: (...args: unknown[]) => void;
+      createPackageOrShow: (uri: unknown, seed?: string) => void;
+    };
+    const open = vi.spyOn(panel, 'open').mockImplementation(() => {});
+    const uri = (context as unknown as { extensionUri: unknown }).extensionUri;
+    try {
+      panel.createPackageOrShow(uri, 'seed-entry');
+      expect(open).toHaveBeenLastCalledWith(uri, 'create', '', 'seed-entry', '_unpackaged', true);
+      panel.createPackageOrShow(uri);
+      expect(open).toHaveBeenLastCalledWith(uri, 'create', '', '', '_unpackaged', true);
+    } finally { open.mockRestore(); }
+  });
+
+  it('localizes the inline choice in English and leaves cancellation without a route', async () => {
+    mocks.language = 'en';
+    mocks.readEntryPackages.mockResolvedValue([]);
+    mocks.showQuickPick.mockResolvedValue(undefined);
+    await command('snlDoc.createEntry')('seed-entry');
+    expect(mocks.showQuickPick).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ label: '＋ Create new Entry Package…', description: 'Create it here, then continue with the new Entry', createNew: true })
+    ]), expect.objectContaining({ title: 'Create Entry' }));
+    expect(mocks.createEntryInlinePackageOrShow).not.toHaveBeenCalled();
+    expect(mocks.createEntryOrShow).not.toHaveBeenCalled();
   });
 
   it('opens the cat navigation picker and routes every section through existing commands', async () => {

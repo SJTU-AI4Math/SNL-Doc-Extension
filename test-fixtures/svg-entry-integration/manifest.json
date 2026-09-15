@@ -1,0 +1,326 @@
+{
+  "entryKinds": [
+    {
+      "id": "example",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Example",
+          "zh-CN": "示例"
+        }
+      },
+      "coloring": {
+        "light": {
+          "stroke": "#2563eb",
+          "background": "#eff6ff"
+        },
+        "dark": {
+          "stroke": "#93c5fd",
+          "background": "#172554"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "example"
+    }
+  ],
+  "macroKinds": [
+    {
+      "id": "diagram",
+      "name": "Diagram",
+      "description": "Projection-driven SVG fixture",
+      "coloring": {
+        "light": {
+          "stroke": "#2563eb",
+          "background": "#eff6ff"
+        },
+        "dark": {
+          "stroke": "#93c5fd",
+          "background": "#172554"
+        }
+      }
+    }
+  ],
+  "package": {
+    "id": "svg-fixture",
+    "name": "SVG Formula Fixture",
+    "description": "Real Task 9 packed-consumer workspace"
+  },
+  "entries": [
+    {
+      "id": "svg-primary",
+      "kind": "example",
+      "title": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Parameterized SVG in block and formula",
+          "zh-CN": "块与公式中的参数化 SVG"
+        }
+      },
+      "content": {
+        "snl": "pair(wrap(diagram(A,B,Left,Right)),ref@svg-reference)"
+      },
+      "contribution_info": null,
+      "pointer": null,
+      "package": "svg-fixture"
+    },
+    {
+      "id": "svg-reference",
+      "kind": "example",
+      "title": "Referenced SVG entry",
+      "content": {
+        "snl": "diagram(B,A,Right,Left)"
+      },
+      "contribution_info": null,
+      "pointer": null,
+      "package": "svg-fixture"
+    }
+  ],
+  "macros": [
+    {
+      "description": "Formula label A",
+      "source": {
+        "entries": [],
+        "urls": []
+      },
+      "kind": "diagram",
+      "dynamic_arity": false,
+      "tags": [],
+      "styles": [
+        {
+          "style_name": "default",
+          "tags": [],
+          "template": {
+            "mode": "formula_inline",
+            "body": "A"
+          }
+        }
+      ],
+      "name": "A",
+      "package": "svg-fixture"
+    },
+    {
+      "description": "Formula label B",
+      "source": {
+        "entries": [],
+        "urls": []
+      },
+      "kind": "diagram",
+      "dynamic_arity": false,
+      "tags": [],
+      "styles": [
+        {
+          "style_name": "default",
+          "tags": [],
+          "template": {
+            "mode": "formula_inline",
+            "body": "B"
+          }
+        }
+      ],
+      "name": "B",
+      "package": "svg-fixture"
+    },
+    {
+      "description": "Four-slot commutative-square SVG",
+      "source": {
+        "entries": [
+          "svg-primary"
+        ],
+        "urls": []
+      },
+      "kind": "diagram",
+      "dynamic_arity": false,
+      "tags": [],
+      "styles": [
+        {
+          "style_name": "default",
+          "tags": [],
+          "template": {
+            "type": "i18n",
+            "default_language": "en",
+            "values": {
+              "en": {
+                "mode": "block",
+                "body": "#0#1#2#3",
+                "block_template_name": "svg_template",
+                "svg_template": {
+                  "asset": {
+                    "source": "commutative-square.svg",
+                    "base_identity": "workspace:.SNL_Doc/assets",
+                    "revision": "sha256:7efed166abf9e86d0e063e852289598e40c9d749c33b31a9513b1ab76f86563b",
+                    "request_epoch": 1
+                  },
+                  "generation": 1,
+                  "producer_revision": "svg-entry-fixture-v1",
+                  "accessibility": {
+                    "label": "Commutative square from A to B"
+                  },
+                  "formula_embed": {
+                    "total_height_em": 3.2,
+                    "baseline_ratio": 0.72
+                  }
+                }
+              },
+              "zh-CN": {
+                "mode": "block",
+                "body": "#0#1#2#3",
+                "block_template_name": "svg_template",
+                "svg_template": {
+                  "asset": {
+                    "source": "commutative-square.svg",
+                    "base_identity": "workspace:.SNL_Doc/assets",
+                    "revision": "sha256:7efed166abf9e86d0e063e852289598e40c9d749c33b31a9513b1ab76f86563b",
+                    "request_epoch": 1
+                  },
+                  "generation": 1,
+                  "producer_revision": "svg-entry-fixture-v1",
+                  "accessibility": {
+                    "label": "从 A 到 B 的交换图"
+                  },
+                  "formula_embed": {
+                    "total_height_em": 3.2,
+                    "baseline_ratio": 0.72
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "name": "diagram",
+      "package": "svg-fixture"
+    },
+    {
+      "description": "Plain label left",
+      "source": {
+        "entries": [],
+        "urls": []
+      },
+      "kind": "diagram",
+      "dynamic_arity": false,
+      "tags": [],
+      "styles": [
+        {
+          "style_name": "default",
+          "tags": [],
+          "template": {
+            "mode": "text",
+            "body": "L"
+          }
+        }
+      ],
+      "name": "Left",
+      "package": "svg-fixture"
+    },
+    {
+      "description": "Document pair for formula and referenced Entry",
+      "source": {
+        "entries": [
+          "svg-primary"
+        ],
+        "urls": []
+      },
+      "kind": "diagram",
+      "dynamic_arity": false,
+      "tags": [],
+      "styles": [
+        {
+          "style_name": "default",
+          "tags": [],
+          "template": {
+            "mode": "text",
+            "body": "#0 #1"
+          }
+        }
+      ],
+      "name": "pair",
+      "package": "svg-fixture"
+    },
+    {
+      "description": "Plain label right",
+      "source": {
+        "entries": [],
+        "urls": []
+      },
+      "kind": "diagram",
+      "dynamic_arity": false,
+      "tags": [],
+      "styles": [
+        {
+          "style_name": "default",
+          "tags": [],
+          "template": {
+            "mode": "text",
+            "body": "R"
+          }
+        }
+      ],
+      "name": "Right",
+      "package": "svg-fixture"
+    },
+    {
+      "description": "Formula context containing one opted-in SVG block",
+      "source": {
+        "entries": [
+          "svg-primary"
+        ],
+        "urls": []
+      },
+      "kind": "diagram",
+      "dynamic_arity": false,
+      "tags": [],
+      "styles": [
+        {
+          "style_name": "default",
+          "tags": [],
+          "template": {
+            "mode": "formula_inline",
+            "body": "x+#0=y"
+          }
+        }
+      ],
+      "name": "wrap",
+      "package": "svg-fixture"
+    }
+  ],
+  "library": {
+    "slug": "svg-entry",
+    "meta": {
+      "title": "SVG Entry Integration",
+      "description": "Task 9 live, formula, popover, and export fixture."
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "node.svg-primary",
+          "label": "Entry",
+          "props": {
+            "entryId": "svg-primary"
+          }
+        },
+        {
+          "id": "node.svg-reference",
+          "label": "Entry",
+          "props": {
+            "entryId": "svg-reference"
+          }
+        }
+      ],
+      "relationships": []
+    },
+    "counters": {
+      "counters": [
+        {
+          "id": "example",
+          "name": "example",
+          "numbering": "1",
+          "children": [],
+          "count": 2
+        }
+      ]
+    }
+  },
+  "entryDefaultPackage": "svg-fixture"
+}

@@ -1,8 +1,43 @@
 import * as vscode from 'vscode';
+import { firstWorkspaceFolder, installSnlDocWatcher } from './panelUtil';
 import { EntryIdentityIndex, StaleEntryIdentityIndexError } from './entryIdentityIndex';
 import { createLibraryPointReadSession } from './libraryPointRead';
 import { readLibraryRenderClosure, type LibraryRenderClosure } from './libraryDependencyClosure';
 import { readLibraryGraph, type EntryData, type MacroPackageEntry } from './snlDoc';
+
+/** Rebind real subscriptions and their debounce on first-root replacement.
+ * Binding generations reject late provider callbacks, including root ABA. */
+export function installLibraryWatcher(
+  owner: vscode.Disposable[],
+  refresh: (uris?: readonly vscode.Uri[]) => void | Promise<void>,
+  pathFilter?: RegExp,
+  invalidate?: (uri: vscode.Uri) => boolean | void,
+  rootChanged?: () => void
+): void {
+  let root = firstWorkspaceFolder();
+  const binding: vscode.Disposable[] = [];
+  let generation = 0;
+  let disposed = false;
+  const release = () => { generation++; for (const d of binding.splice(0)) d.dispose(); };
+  const bind = () => {
+    if (!root) return;
+    const key = root.toString(true);
+    const base = vscode.Uri.joinPath(root, '.SNL_Doc').toString(true) + '/';
+    const token = generation;
+    const current = () => !disposed && token === generation && key === firstWorkspaceFolder()?.toString(true);
+    installSnlDocWatcher(binding, uris => { if (current()) return refresh(uris); }, pathFilter, uri => {
+      if (!current() || !uri.toString(true).startsWith(base)) return false;
+      return invalidate?.(uri);
+    });
+  };
+  bind();
+  const folders = vscode.workspace.onDidChangeWorkspaceFolders?.(() => {
+    const next = firstWorkspaceFolder();
+    if (disposed || next?.toString(true) === root?.toString(true)) return;
+    release(); root = next; rootChanged?.(); bind(); void refresh();
+  });
+  owner.push({ dispose: () => { if (disposed) return; disposed = true; release(); folders?.dispose(); } });
+}
 
 /** One panel lifetime. Identity metadata is cached; bodies and misses never are.
  * Dependencies are authoritative only after a successful settled body request. */

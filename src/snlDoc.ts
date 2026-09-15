@@ -214,16 +214,51 @@ async function assertWorkspaceWritableOnDisk(
 
 /** Library mutations do not depend on Entry/Macro bodies. Validate the full
  * current metadata topology instead of silently disabling workspace admission. */
-async function assertLibraryWritableOnDisk(workspaceRoot: vscode.Uri): Promise<unknown> {
+enum WriterValidationScope { Workspace, LibraryMetadata, CompleteLibraryDraft }
+
+async function assertLibraryWritableOnDisk(
+  workspaceRoot: vscode.Uri,
+  scope: WriterValidationScope
+): Promise<unknown> {
   const config = await assertWorkspaceWritableOnDisk(workspaceRoot, false, true);
+  const version = (config as Record<string, unknown>).version;
+  // Pre-entity workspaces retain their existing version/migration admission.
+  if (scope === WriterValidationScope.LibraryMetadata &&
+      (typeof version !== 'string' || !usesCurrentEntityStorageDataVersion(version))) return config;
   const base = snlRootUri(workspaceRoot);
-  for (const directory of ['entries', 'macros', 'packages', 'libraries']) {
+  const directories = scope === WriterValidationScope.LibraryMetadata
+    ? ['entries', 'macros', 'packages'] : ['entries', 'macros', 'packages', 'libraries'];
+  for (const directory of directories) {
     await assertRealDirectory(vscode.Uri.joinPath(base, directory), `.SNL_Doc/${directory}`);
   }
-  await new EntryIdentityIndex(base.toString(), {
+  const identity = await new EntryIdentityIndex(base.toString(), {
     readFile: path => Promise.resolve(vscode.workspace.fs.readFile(vscode.Uri.joinPath(base, path))),
     readDirectory: path => Promise.resolve(vscode.workspace.fs.readDirectory(vscode.Uri.joinPath(base, path)))
   }).snapshot();
+  if (scope === WriterValidationScope.LibraryMetadata) {
+    // Preserve legacy writers' frozen-backup receipt authority. These are the
+    // immutable migration backups, not the current Entry/Macro body pools.
+    const storage = entityReadStorage(workspaceRoot);
+    const legacyEntries = await storage.readJson('entries.json');
+    const files = await storage.listJsonFiles('term_macros');
+    const packages = new Map<string, unknown>();
+    for (const file of files) {
+      const value = await storage.readJson(`term_macros/${file}`);
+      if (value === null) throw new Error(`Legacy Macro backup disappeared: ${file}.`);
+      packages.set(file, value);
+    }
+    const { makeEntityStorageReceipt } = await import('./dataMigrations');
+    const actual = makeEntityStorageReceipt(legacyEntries, packages, legacyEntries !== null || files.length > 0);
+    const metadata = (config as Record<string, unknown>).entity_storage as Record<string, unknown>;
+    if (!isDeepStrictEqual(metadata.receipt, actual)) {
+      throw new Error('Current entity topology migration receipt does not match the frozen legacy backup.');
+    }
+    if (!identity.packages.has('_unpackaged')) throw new Error('Current entity topology is missing the _unpackaged Package manifest.');
+    if (identity.activePackages.includes('_unpackaged') ||
+        ((config as Record<string, unknown>).active_macro_packages as string[] | undefined)?.includes('_unpackaged')) {
+      throw new Error('config.json#active_macro_packages cannot activate the system _unpackaged Package.');
+    }
+  }
   return config;
 }
 
@@ -357,7 +392,8 @@ async function writeWorkspaceFile(
   expectedOriginal: unknown | typeof NO_EXPECTED_SNAPSHOT = NO_EXPECTED_SNAPSHOT,
   validateTopology = true,
   validateEntityOutput = true,
-  onWriteAttempt?: () => void
+  onWriteAttempt?: () => void,
+  scope = WriterValidationScope.Workspace
 ): Promise<void> {
   await withExtensionWriterLock(workspaceRoot, `write ${uri.fsPath}`, async () => {
     const librariesPath = librariesDirUri(workspaceRoot).path.replace(/\/+$/, '');
@@ -365,7 +401,12 @@ async function writeWorkspaceFile(
     if (libraryWrite) {
       await assertOwnedLibraryPath(workspaceRoot, uri);
     }
-    const currentConfig = await assertWorkspaceWritableOnDisk(workspaceRoot, validateTopology, libraryWrite);
+    if (scope !== WriterValidationScope.Workspace && !libraryWrite) {
+      throw new Error('Library validation scope requires an owned Library target.');
+    }
+    const currentConfig = scope === WriterValidationScope.LibraryMetadata
+      ? await assertLibraryWritableOnDisk(workspaceRoot, scope)
+      : await assertWorkspaceWritableOnDisk(workspaceRoot, validateTopology, libraryWrite);
     const writingConfig = uri.fsPath === configUri(workspaceRoot).fsPath;
     if (expectedOriginal !== NO_EXPECTED_SNAPSHOT) {
       const currentTarget = writingConfig
@@ -406,6 +447,17 @@ async function writeWorkspaceFile(
   });
 }
 
+/** Scoped public Library producers retain the common CAS/output/write helper. */
+async function writeLibraryFile(
+  workspaceRoot: vscode.Uri,
+  uri: vscode.Uri,
+  bytes: Uint8Array,
+  expected: unknown | typeof NO_EXPECTED_SNAPSHOT = NO_EXPECTED_SNAPSHOT
+): Promise<void> {
+  return writeWorkspaceFile(workspaceRoot, uri, bytes, expected, true, true, undefined,
+    WriterValidationScope.LibraryMetadata);
+}
+
 async function deleteWorkspaceJsonFile(
   workspaceRoot: vscode.Uri,
   uri: vscode.Uri,
@@ -440,11 +492,13 @@ type JsonFileOperation = JsonFileWriteOperation | JsonFileDeleteOperation;
 async function applyJsonFileOperations(
   workspaceRoot: vscode.Uri,
   purpose: string,
-  operations: readonly JsonFileOperation[]
+  operations: readonly JsonFileOperation[],
+  scope = WriterValidationScope.Workspace
 ): Promise<void> {
   await withExtensionWriterLock(workspaceRoot, purpose, async () => {
-    if (purpose === 'commit complete Library draft') {
-      await assertLibraryWritableOnDisk(workspaceRoot);
+    if (scope !== WriterValidationScope.Workspace) {
+      for (const operation of operations) await assertOwnedLibraryPath(workspaceRoot, operation.uri);
+      await assertLibraryWritableOnDisk(workspaceRoot, scope);
     } else {
       await assertWorkspaceWritableOnDisk(workspaceRoot);
     }
@@ -1433,7 +1487,7 @@ export async function createLibrary(
     if (!(await exists(root))) {
       return { status: 'noSnlDoc' } as const;
     }
-    await assertWorkspaceWritableOnDisk(workspaceRoot, true, true);
+    await assertLibraryWritableOnDisk(workspaceRoot, WriterValidationScope.LibraryMetadata);
     await ensureOwnedLibraryRootForCreate(workspaceRoot);
 
     const libDir = libraryDirUri(workspaceRoot, slug);
@@ -1469,7 +1523,7 @@ export async function createLibrary(
       await fsApi.writeFile(vscode.Uri.joinPath(typstDir, '.gitkeep'), gitkeep);
       await fsApi.writeFile(vscode.Uri.joinPath(latexDir, '.gitkeep'), gitkeep);
       await fsApi.writeFile(vscode.Uri.joinPath(markdownDir, '.gitkeep'), gitkeep);
-      await assertWorkspaceWritableOnDisk(workspaceRoot, true, true);
+      await assertLibraryWritableOnDisk(workspaceRoot, WriterValidationScope.LibraryMetadata);
       await assertOwnedLibraryRoot(workspaceRoot);
       await assertRealDirectory(stagingDir, 'private Library staging directory');
       await fsApi.rename(stagingDir, libDir, { overwrite: false });
@@ -4976,7 +5030,7 @@ export async function updateLibrary(
   if (typeof input.description === 'string') {
     next.description = input.description;
   }
-  await writeWorkspaceFile(
+  await writeLibraryFile(
     workspaceRoot,
     metaUri,
     jsonBytes(next),
@@ -5204,7 +5258,7 @@ export async function updateLibraryDraft(
         { kind: 'write', uri: metaUri, value: nextMeta, expected: rawMeta },
         { kind: 'write', uri: graphUri, value: nextGraph, expected: rawGraphValue },
         { kind: 'write', uri: countersUri, value: nextCounters, expected: rawCountersValue }
-      ]);
+      ], WriterValidationScope.CompleteLibraryDraft);
       return {
         status: 'updated', slug: targetSlug, title,
         revisions: {
@@ -6196,7 +6250,7 @@ export async function writeLibraryMeta(
   }
   const merged: LibraryMetaFile = { ...existing, ...meta };
   try {
-    await writeWorkspaceFile(workspaceRoot,
+    await writeLibraryFile(workspaceRoot,
       libraryMetaUri(workspaceRoot, slug),
       jsonBytes(merged),
       expectedOriginal
@@ -6566,7 +6620,7 @@ export async function mutateLibraryGraph(
     });
     const next = { ...wrapper, nodes: nextNodes, relationships: nextRelationships };
     try {
-      await writeWorkspaceFile(
+      await writeLibraryFile(
         workspaceRoot,
         uri,
         jsonBytes(next),
@@ -6599,7 +6653,7 @@ export async function writeLibraryGraph(
     relationships: graph.relationships
   };
   try {
-    await writeWorkspaceFile(workspaceRoot, libraryGraphUri(workspaceRoot, slug), jsonBytes(file));
+    await writeLibraryFile(workspaceRoot, libraryGraphUri(workspaceRoot, slug), jsonBytes(file));
     return { status: 'ok' };
   } catch (err) {
     return {
@@ -6655,7 +6709,7 @@ export async function updateLibraryGraphNodeEntryId(
     }
     if (!updated.changed) return { status: 'ok' } as const;
     try {
-      await writeWorkspaceFile(workspaceRoot, uri, jsonBytes(updated.value), raw);
+      await writeLibraryFile(workspaceRoot, uri, jsonBytes(updated.value), raw);
       return { status: 'ok' } as const;
     } catch (error) {
       return {
@@ -6695,7 +6749,7 @@ export async function wrapLibraryGraphNodeWithParent(
     const wrapped = wrapRawLibraryGraphNodeWithParent(raw, targetId, parent);
     if (!wrapped.ok) return { status: wrapped.reason } as const;
     try {
-      await writeWorkspaceFile(workspaceRoot, uri, jsonBytes(wrapped.value), raw);
+      await writeLibraryFile(workspaceRoot, uri, jsonBytes(wrapped.value), raw);
       return { status: 'ok' } as const;
     } catch (error) {
       return {
@@ -6777,7 +6831,7 @@ export async function writeLibraryCounters(
   slug: string,
   roots: CounterNode[]
 ): Promise<void> {
-  await writeWorkspaceFile(
+  await writeLibraryFile(
     workspaceRoot,
     libraryCountersUri(workspaceRoot, slug),
     jsonBytes({ counters: roots } satisfies LibraryCountersFile)
@@ -6849,8 +6903,8 @@ export async function mutateLibraryCounters(
     });
     const next = { ...wrapper, counters: roots.map(preserve) };
     try {
-      if (existed) await writeWorkspaceFile(workspaceRoot, uri, jsonBytes(next), raw);
-      else await writeWorkspaceFile(workspaceRoot, uri, jsonBytes(next));
+      if (existed) await writeLibraryFile(workspaceRoot, uri, jsonBytes(next), raw);
+      else await writeLibraryFile(workspaceRoot, uri, jsonBytes(next));
       return { status: 'ok', changed: true } as const;
     } catch (error) {
       return {
@@ -7351,7 +7405,7 @@ export async function deleteLibrary(
         return { status: 'noSnlDoc' } as const;
       }
       await assertOwnedLibraryRoot(workspaceRoot);
-      await assertWorkspaceWritableOnDisk(workspaceRoot, true, true);
+      await assertLibraryWritableOnDisk(workspaceRoot, WriterValidationScope.LibraryMetadata);
       if (!(await exists(dir))) {
         return { status: 'notFound', slug: targetSlug } as const;
       }

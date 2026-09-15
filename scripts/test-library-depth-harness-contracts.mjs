@@ -11,6 +11,7 @@ import {
   destroyOwnedProcessRegistry,
   fileCensus,
   isPathInside,
+  classifyLinuxAncestrySnapshot,
   parseTerminalResults,
   parseMacProcessTable,
   processTreePolicy,
@@ -57,6 +58,34 @@ try {
   assert.equal(validateProbeResult('[ASSERT:OTHER]\n{"kind":"assertion","ids":["OTHER"]}\n', { kind: 'assertion', id: 'A' }).ok, false);
   assert.equal(validateProbeResult('{kind:bad}\n{"kind":"assertion","ids":["A"]}\n', { kind: 'assertion', id: 'A' }).ok, false);
   assert.equal(validateProbeResult('', { kind: 'pass' }).ok, false);
+
+
+  const linuxRecord = {
+    pid: 100,
+    groupRoot: 100,
+    birth: { startTicks: '1000', executable: '/usr/bin/node' }
+  };
+  const linuxRoot = { pid: 100, ppid: 1, pgid: 100, sid: 90, tokenState: 'owned', birth: linuxRecord.birth };
+  const linuxChild = { pid: 101, ppid: 100, pgid: 100, sid: 90, tokenState: 'scrubbed', birth: { startTicks: '1001', executable: '/usr/bin/chromium' } };
+  const linuxGrandchild = { pid: 102, ppid: 101, pgid: 100, sid: 90, tokenState: 'inaccessible', birth: { startTicks: '1002', executable: '/usr/bin/chromium' } };
+  assert.deepEqual(classifyLinuxAncestrySnapshot(linuxRecord, [linuxRoot, linuxChild, linuxGrandchild]), [100, 101, 102], 'verified ancestry accepts scrubbed and inaccessible descendants transitively');
+  assert.throws(() => classifyLinuxAncestrySnapshot(linuxRecord, [linuxRoot, linuxChild, linuxGrandchild, { pid: 103, ppid: 1, pgid: 100, sid: 90, tokenState: 'scrubbed', birth: { startTicks: '1003', executable: '/usr/bin/chromium' } }]), /unrelated/, 'same-PGID process outside verified ancestry must fail closed');
+  assert.throws(() => classifyLinuxAncestrySnapshot(linuxRecord, [linuxRoot, { ...linuxChild, tokenState: 'mismatched' }]), /mismatched/, 'readable mismatched owner token must fail closed');
+  assert.throws(() => classifyLinuxAncestrySnapshot(linuxRecord, [linuxRoot, { ...linuxChild, birth: { ...linuxChild.birth, startTicks: '999' } }]), /predates/, 'descendant born before its verified root must fail closed');
+  assert.throws(() => classifyLinuxAncestrySnapshot(linuxRecord, [linuxRoot, { ...linuxChild, sid: 91 }]), /group or session/, 'descendant outside the verified group/session must fail closed');
+  assert.deepEqual(classifyLinuxAncestrySnapshot(linuxRecord, [
+    { pid: 104, ppid: 1, pgid: 100, sid: 90, tokenState: 'owned', birth: { startTicks: '1004', executable: '/usr/bin/node' } },
+    { pid: 105, ppid: 104, pgid: 100, sid: 90, tokenState: 'scrubbed', birth: { startTicks: '1005', executable: '/usr/bin/chromium' } }
+  ]), [104, 105], 'exited root cleanup relies on an independently owned live marker');
+  assert.throws(() => classifyLinuxAncestrySnapshot(linuxRecord, [
+    { pid: 104, ppid: 1, pgid: 100, sid: 90, tokenState: 'owned', birth: { startTicks: '1004', executable: '/usr/bin/node' } },
+    { pid: 106, ppid: 1, pgid: 100, sid: 90, tokenState: 'scrubbed', birth: { startTicks: '1006', executable: '/usr/bin/chromium' } }
+  ]), /unrelated/, 'exited root must not confer broad PGID ownership');
+
+  if (process.env.SNL_LINUX_PURE_ONLY === '1') {
+    console.log(JSON.stringify({ kind: 'pass', gate: 'author-pure' }));
+    process.exit(0);
+  }
 
   const repository = resolve(temp, 'repository');
   const external = resolve(temp, 'external');
@@ -202,7 +231,7 @@ try {
       await verifyOwnedProcessRegistryClean(reDirtiedRegistry);
       destroyOwnedProcessRegistry(reDirtiedRegistry);
     } else {
-      try { reDirtiedChild.kill('SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+      if (process.platform !== 'linux') { try { reDirtiedChild.kill('SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; } }
     }
   }
   assert.equal(existsSync(reDirtiedRegistry.directory), false, 'registry deletion is allowed only after a fresh true zero-owned verification');
@@ -219,7 +248,7 @@ try {
     destroyOwnedProcessRegistry(aliasRegistry);
   } finally {
     if (existsSync(aliasRegistry.directory)) {
-      try { aliasChild.kill('SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+      if (process.platform !== 'linux') { try { aliasChild.kill('SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; } }
       rmSync(aliasRegistry.directory, { recursive: true, force: true });
     }
   }
@@ -250,7 +279,7 @@ try {
       destroyOwnedProcessRegistry(linkedRegistry);
     } finally {
       if (existsSync(linkedRegistry.directory)) {
-        try { linkedChild.kill('SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+        if (process.platform !== 'linux') { try { linkedChild.kill('SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; } }
         rmSync(linkedRegistry.directory, { recursive: true, force: true });
       }
       rmSync(linkedAliasPath, { force: true });
@@ -302,7 +331,7 @@ try {
     const nestedPids = readFileSync(pids, 'utf8').trim().split(/\s+/).map(Number);
     assert.equal(nestedPids.length, 3, 'geometry, browser, and grandchild all started');
     assert.equal((await Promise.all(nestedPids.map(isProcessAlive))).every(alive => !alive), true, `nested descendants remain: ${(await Promise.all(nestedPids.map(async pid => await isProcessAlive(pid) ? pid : null))).filter(Boolean).join(',')}`);
-    if (unrelated.exitCode === null) unrelated.kill('SIGTERM');
+    if (process.platform !== 'linux') { if (unrelated.exitCode === null) unrelated.kill('SIGTERM'); }
 
     const standalonePids = resolve(temp, 'standalone-pids');
     const standaloneGrandchild = `require('fs').appendFileSync(${JSON.stringify(standalonePids)},process.pid+'\\n');setInterval(()=>{},1000)`;
@@ -314,11 +343,35 @@ try {
     const ownedPids = readFileSync(standalonePids, 'utf8').trim().split(/\s+/).map(Number);
     assert.equal((await Promise.all(ownedPids.map(isProcessAlive))).every(alive => !alive), true, `standalone cleanup left descendants: ${(await Promise.all(ownedPids.map(async pid => await isProcessAlive(pid) ? pid : null))).filter(Boolean).join(',')}`);
 
+    const scrubbedPids = resolve(temp, 'environment-scrubbed-descendant-pids');
+    const scrubbedGrandchild = `require('fs').appendFileSync(${JSON.stringify(scrubbedPids)},process.pid+'\\n');setInterval(()=>{},1000)`;
+    const scrubbedDescendant = `const {spawn}=require('child_process');require('fs').appendFileSync(${JSON.stringify(scrubbedPids)},process.pid+'\\n');spawn(process.execPath,['-e',${JSON.stringify(scrubbedGrandchild)}],{stdio:'ignore',detached:false,env:{}});setInterval(()=>{},1000)`;
+    const scrubbedRootSource = `const {spawn}=require('child_process');require('fs').appendFileSync(${JSON.stringify(scrubbedPids)},process.pid+'\\n');spawn(process.execPath,['-e',${JSON.stringify(scrubbedDescendant)}],{stdio:'ignore',detached:false,env:{}});setInterval(()=>{},1000)`;
+    const scrubbedRoot = spawnTracked(process.execPath, ['-e', scrubbedRootSource], { stdio: 'ignore' });
+    await new Promise((resolveWait) => setTimeout(resolveWait, 150));
+    await terminateProcessTree(scrubbedRoot);
+    await new Promise((resolveWait) => setTimeout(resolveWait, 150));
+    const scrubbedOwnedPids = readFileSync(scrubbedPids, 'utf8').trim().split(/\s+/).map(Number);
+    assert.equal(scrubbedOwnedPids.length, 3, 'environment-scrubbed root, child, and grandchild all started');
+    assert.equal((await Promise.all(scrubbedOwnedPids.map(isProcessAlive))).every(alive => !alive), true, `environment-scrubbed descendant cleanup left PIDs: ${(await Promise.all(scrubbedOwnedPids.map(async pid => await isProcessAlive(pid) ? pid : null))).filter(Boolean).join(',')}`);
+
     for (const [label, launch] of [
       ['group root', spawnProcessGroup],
       ['tracked root', spawnTracked]
     ]) {
-      const unrelatedExitedRoot = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+      const sentinelRegistry = process.platform === 'linux' ? createOwnedProcessRegistry() : null;
+      const unrelatedExitedRoot = (sentinelRegistry ? spawnTracked : spawn)(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore', ...(sentinelRegistry ? { env: sentinelRegistry.env } : {}) });
+      if (sentinelRegistry) {
+        const rejectedRegistry = createOwnedProcessRegistry();
+        await verifyOwnedProcessRegistryClean(rejectedRegistry);
+        const sentinelRecord = JSON.parse(readFileSync(sentinelRegistry.registryPath, 'utf8').trim());
+        appendFileSync(rejectedRegistry.registryPath, JSON.stringify({ ...sentinelRecord, ownerId: rejectedRegistry.id }) + '\n');
+        await assert.rejects(cleanupOwnedProcessRegistry(rejectedRegistry), /cleanupIncomplete.*owner token/, 'foreign-token cleanup must reject before any signal');
+        assert.equal(await isProcessAlive(unrelatedExitedRoot.pid), true, 'negative Linux cleanup must leave sentinel alive');
+        await assert.rejects(verifyOwnedProcessRegistryClean(rejectedRegistry), /cleanupIncomplete/, 'failed Linux cleanup may not certify clean');
+        assert.throws(() => destroyOwnedProcessRegistry(rejectedRegistry), /before zero-owned verification/);
+        rmSync(rejectedRegistry.directory, { recursive: true, force: true });
+      }
       const exitedRootPids = resolve(temp, `${label.replaceAll(' ', '-')}-exited-root-pids`);
       const exitedRootChild = `require('fs').appendFileSync(${JSON.stringify(exitedRootPids)},process.pid+'\\n');setInterval(()=>{},1000)`;
       const exitedRootParent = `const {spawn}=require('child_process');const child=spawn(process.execPath,['-e',${JSON.stringify(exitedRootChild)}],{stdio:'ignore',detached:false});child.unref()`;
@@ -338,11 +391,16 @@ try {
         assert.equal(await isProcessAlive(descendantPid), false, `${label} cleanup skipped a live descendant after its root exited`);
         assert.equal(await isProcessAlive(unrelatedExitedRoot.pid), true, `${label} cleanup killed an unrelated process`);
       } finally {
-        try { process.kill(descendantPid, 'SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+        if (process.platform !== 'linux') { try { process.kill(descendantPid, 'SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; } }
         if (label === 'group root') {
-          try { process.kill(-exitedRoot.pid, 'SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+          if (process.platform !== 'linux') { try { process.kill(-exitedRoot.pid, 'SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; } }
         }
-        if (unrelatedExitedRoot.exitCode === null) unrelatedExitedRoot.kill('SIGTERM');
+        if (sentinelRegistry) {
+          await cleanupOwnedProcessRegistry(sentinelRegistry);
+          await verifyOwnedProcessRegistryClean(sentinelRegistry);
+          destroyOwnedProcessRegistry(sentinelRegistry);
+        }
+        if (process.platform !== 'linux') { if (unrelatedExitedRoot.exitCode === null) unrelatedExitedRoot.kill('SIGTERM'); }
       }
     }
 
@@ -366,8 +424,8 @@ try {
         assert.equal(existsSync(nestedMarker), false, `nested ${nestedDetached ? 'detached' : 'inherited'} descendant survived exited-root registry cleanup`);
         assert.equal(existsSync(unrelatedMarker), true, 'registry cleanup killed an unrelated process');
       } finally {
-        try { process.kill(descendantPid, 'SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
-        if (unrelated.exitCode === null) unrelated.kill('SIGTERM');
+        if (process.platform !== 'linux') { try { process.kill(descendantPid, 'SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; } }
+        if (process.platform !== 'linux') { if (unrelated.exitCode === null) unrelated.kill('SIGTERM'); }
         destroyOwnedProcessRegistry(registry);
       }
     }

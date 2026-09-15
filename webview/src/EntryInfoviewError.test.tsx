@@ -30,6 +30,18 @@ afterEach(() => {
 });
 
 describe('EntryInfoview relationship availability', () => {
+  it('shows terminal entryDetailsError as a load alert, not a missing Entry', () => {
+    render(<EntryInfoviewApp />);
+    push({
+      type: 'entryDetailsError', entryId: 'entry-1',
+      message: 'relationships.json has duplicate ids'
+    });
+    expect(screen.getByRole('alert').textContent).toContain(
+      'Could not load entry data: relationships.json has duplicate ids'
+    );
+    expect(screen.queryByText('Entry not found in this workspace.')).toBeNull();
+  });
+
   it('preserves v11 workspace Macros for the registry Basics Entry renderer and reacts to language', async () => {
     set_content_language('zh-CN');
     render(<EntryInfoviewApp />);

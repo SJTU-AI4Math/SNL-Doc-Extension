@@ -1,0 +1,24 @@
+[
+  {
+    "id": "spec.cache",
+    "kind": "concept",
+    "package": "extension-ui-spec",
+    "title": "Authoring 与派生缓存：内部 Generator 规范",
+    "content": {
+      "markdown": "## 目标与范围\n\n本条及其子条为 0.2.0-cache 分支的规范性目标，先于实现。Authoring 是创作权威；自动可重建数据归本地 Cache，不进入 Authoring Entry schema，不由用户手工维护缓存文件。\n\n仅实现五类：全局 Entry PageRank、完全全局 Pointer 逆映射、全局 Entry SSI、全局自动 Dependency Relationship，以及单 Library 图谱布局。Package/成员索引合同保持不变，SNoogL 不新增专用缓存。Generator 先作为内置计算接口，暂不接受用户 TypeScript/脚本，也不引入沙箱框架。\n\n## 作用域与存储\n\n工作区全局结果位于 `.SNL_Doc/.cache/<generator>/`；Library 结果位于 `.SNL_Doc/libraries/<slug>/.cache/<generator>/`。管理接口共用，但每项拥有独立输出命名空间和重建生命周期。根 `.gitignore` 的 `.cache/` 规则覆盖两种位置。Workspace/Library Authoring 读取、版本检查、文件枚举、导出源快照不把缓存当成创作记录。\n\n全局表示输入语义覆盖当前工作区，不以当前 Package、Library 或 UI filter 缩窄；可增量实现，不强制每次全量重算。布局位置虽然就近存储，其失效仍包含相关全局 Entry/Relationship 与布局参数。\n\n## 权威边界\n\n缓存缺失/过期/损坏是可重建状态，不是创作数据损坏。清理及普通重建不得修改 Authoring 字节。人工关系、显式布局预设、Pointer 定位规则、未保存草稿、迁移备份和回滚记录都不是可任意删除的缓存。历史混存的自动关系允许兼容读取但不再被新生成结果写回；显式清理历史数据必须走独立、revision-checked 的 Authoring 操作，不在普通 rebuild 中偷偷执行。\n\n本轮不改变当前 workspace/package/Entry payload schema 版本；0.2.0-cache 是功能分支名而非自动的数据版本升级。缓存有独立格式与算法版本。HTML 只读宿主允许从冻结输入生成临时内存结果，不写原工作区，不把局部导出闭包冒称全工作区指标。\n\n## 验收\n\n以五类真实计算和消费链路、冷/热/清空/损坏/失效重建、并发与取消、Authoring 字节不变、Library作用域隔离为准，不以空注册器或只有测试假数据的计算器视作完成。真实 Extension Host 与浏览器消费端分别验证，保留共享 Reader 和现有 Pointer/导出授权合同。"
+    },
+    "contribution_info": null,
+    "pointer": null
+  },
+  {
+    "id": "spec.cache.dependencies",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "全局 Dependency Relationship 派生缓存",
+    "content": {
+      "markdown": "输入为完整工作区 Entry 的 SNL 及激活 Macro 的 source.entries；保留既有引用解析语义：from Entry 使用 to Entry 所定义 Macro，方向为 from 依赖 to。生成器标签 macro-source-scan 的 depends 为可重建自动数据。人工 depends、uses_context 和其他标签按真实来源保留，不按 label 一刀切删除。\n\nAuthoring relationships.json 保留人工及其他非本生成器负责的记录；普通自动生成只写 dependencies Cache，不写 Authoring。兼容已存在的旧自动 depends：读时用当前可重建结果替代该受管子集，旧实体文件本身不由重建静默清理。编辑器与图谱必须把自动行标明派生来源，不允许把旧缓存记录当作可任意编辑的 Authoring 行；人工关系 CRUD 保持原 CAS 与校验。\n\n消费端读取人工+当前自动关系的合成视图；导出绑定同一输入快照。Witness 去重与排序确定；缺失/自身来源仍遵既有忽略规则；自动关系身份不与保留记录冲突。isAtomic 是依赖图分析结果，按同标签替代路径规则计算，输入变化时考虑对其他边的影响，不沿用局部旧标记。\n\n验收：Macro source/Entry引用改动、删除/新增、清空/损坏缓存后重建；人工边及不相关 metadata 逐字保留；自动生成不改变任何 Authoring 字节；编辑器与图读取可见新结果。\n\n## 审核补充\n\n可选 relationships.json 仅在明确 FileNotFound/ENOENT 时视为空池；stat/read 的权限、I/O、provider故障必须传播，不能用丢边数据伪装完整依赖图或全局PageRank成功。\n\n\n## 已保存记录与合成图的导航身份\n\n保存池与当前合成池是不同的读取来源。来自保存列表的选择必须在 UI 消息、Host 命令、详情读取和面板身份中保留来源；不能只用裸 id 在另一个池中重新解释该选择。旧自动关系已不再生成时，仍能查看该已保存记录；同 id 的当前边具有不同端点，或同端点具有不同 witness/metadata 时，查看保存行仍展示保存记录，当前图导航仍展示当前结果，两者不互相偷换或覆盖面板身份。未显式提供来源的既有图导航继续遵守原有当前视图合同。\n\n自动/历史派生记录明确标为只读，详情查看不等于可编辑；不得提供必然被 Host 拒绝的编辑或删除动作。只读判定来自 Host 读取的真实记录，新增来源字段须校验，不信任客户端的可写声明。普通人工关系继续原有创建、编辑、删除、CAS 与未知字段保留。此导航修复不修改 Authoring 关系文件，不把普通重建改成历史数据清理。\n\n验收从真实已保存 Dashboard 行经生产命令/详情读取链覆盖：旧自动行不再生成、同 id 不同端点、同端点不同 witness 元数据；并保留人工 CRUD、只读拒绝与旧调用兼容性。\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+]

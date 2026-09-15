@@ -13,6 +13,9 @@ describe('macroKindsToPalette', () => {
     expect(palette).toEqual({ 'custom-kind': coloring });
     const lightCss = paletteToCss(palette!, 'light');
     expect(lightCss).toContain('color: #123456');
+    // The SDK's geometry overlay now owns the inset box-shadow. Preserve the
+    // independent stroke oracle at its palette input, not the obsolete inline frame.
+    expect(lightCss).toContain('--snl-highlight-stroke: rgba(18, 52, 86, 0.5)');
     expect(lightCss).toContain('background: rgba(171, 205, 239, 0.5)');
     const darkCss = paletteToCss(palette!, 'dark');
     expect(darkCss).toContain('color: #fedcba');

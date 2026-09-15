@@ -42,6 +42,11 @@ afterAll(async () => { await Promise.all([state.root, compiled].filter(Boolean).
 async function harness(): Promise<any> {
   const { InfoviewPanel } = await import('./infoviewPanel');
   return Object.assign(Object.create(InfoviewPanel.prototype), {
+    libraryBody: { retire() {}, async read() {
+      return { entries: state.entries.filter(e => e.id !== 'private'), macros: {}, graph: { status: 'ok', result: { warnings: [], graph: {
+        nodes: [{ id: 'occurrence', label: 'Entry', props: { entryId: 'target' } }], relationships: []
+      } } } };
+    } },
     viewGeneration: 0, entryHistory: [], fallbackReturnRoute: { kind: 'root' }, contentLanguage: 'en',
     assetBaseUri: () => '',
     panel: { webview: { postMessage: async (m: unknown) => { state.posted.push(m); return true; } } }
@@ -52,7 +57,7 @@ it('Entry and Library host messages consume one saved global cache while returni
   await panel.pushLibraryEntries('lib');
   const frozen = panel.readerSnapshot;
   await panel.pushEntryDetailsForEntry('target');
-  const library = state.posted.find(m => m.type === 'libraryEntries');
+  const library = state.posted.find(m => m.type === 'libraryRegions');
   const entry = state.posted.find(m => m.type === 'entryDetails');
   for (const message of [library, entry]) {
     expect(message?.cachedEntryMetrics).toMatchObject({ scope: 'workspace', status: 'ready', entries: {
@@ -75,11 +80,11 @@ it('provider Entry and Library projections consume ready SSI/PageRank without na
   const spies = (['lstat', 'mkdir', 'open', 'writeFile', 'readFile', 'rename', 'unlink'] as const).map(m => vi.spyOn(fs, m));
   try {
     const panel = await harness(); await panel.pushLibraryEntries('lib'); await panel.pushEntryDetailsForEntry('target');
-    for (const message of state.posted.filter(m => ['libraryEntries', 'entryDetails'].includes(m.type))) {
+    for (const message of state.posted.filter(m => ['libraryRegions', 'entryDetails'].includes(m.type))) {
       expect(message.cachedEntryMetrics).toMatchObject({ status: 'ready', entries: { target: { kind: 'ok' } } });
       expect(message.globalPageRank).toMatchObject({ scope: 'workspace', converged: true });
     }
-    expect(state.posted.filter(m => ['libraryEntries', 'entryDetails'].includes(m.type))).toHaveLength(2);
+    expect(state.posted.filter(m => ['libraryRegions', 'entryDetails'].includes(m.type))).toHaveLength(2);
     for (const spy of spies) expect(spy).not.toHaveBeenCalled();
   } finally { vi.restoreAllMocks(); state.scheme = 'file'; }
 });

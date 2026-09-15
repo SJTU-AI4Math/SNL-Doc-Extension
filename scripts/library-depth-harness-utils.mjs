@@ -151,6 +151,7 @@ export function validateProbeResult(output, expected) {
 }
 
 const processOwnership = new WeakMap();
+const linuxIncompleteContexts = new WeakSet();
 const verifiedCleanRegistries = new Set();
 const ownedRegistryContexts = new Map();
 const REGISTRY_PATH_ENV = 'SNL_PROCESS_OWNER_REGISTRY';
@@ -351,6 +352,11 @@ function appendOwnershipRecord(context, child, detached, command, metadata = {})
     ...metadata,
     createdAt: Date.now()
   };
+  if (process.platform === 'linux') {
+    const fields = readFileSync(`/proc/${child.pid}/stat`, 'utf8').split(/\) (?=[A-Za-z] )/).at(-1).trim().split(/\s+/);
+    record.linuxSession = { pgid: Number(fields[2]), sid: Number(fields[3]) };
+    processOwnership.set(child, { context, record });
+  }
   appendFileSync(context.registryPath, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 });
   processOwnership.set(child, { context, record });
 }
@@ -368,7 +374,18 @@ function spawnOwned(command, args, options, defaultDetached) {
     appendOwnershipRecord(context, child, detached, launch.command, process.platform === 'win32' ? { jobLauncher: true, targetExecutable: String(command) } : {});
   }
   catch (error) {
-    try { child.kill('SIGKILL'); } catch { /* fail closed after best-effort local kill */ }
+    if (process.platform === 'linux') {
+      const ownership = processOwnership.get(child);
+      try {
+        if (!ownership) throw new Error('no birth-bound ownership record');
+        linuxPidfdRecord(ownership.record, context, false, 1000);
+      } catch (cleanupError) {
+        linuxIncompleteContexts.add(context);
+        throw new Error(`${error.message}; cleanupIncomplete: ${cleanupError.message}`, { cause: error });
+      }
+    } else {
+      try { child.kill('SIGKILL'); } catch { /* unchanged non-Linux best effort */ }
+    }
     throw error;
   }
   return child;
@@ -415,11 +432,83 @@ function posixProcessTable() {
 
 function linuxOwnerTokenState(pid, token) {
   try {
-    return readFileSync(`/proc/${pid}/environ`).toString().split('\0').includes(`${OWNER_TOKEN_ENV}=${token}`) ? 'owned' : 'foreign';
+    const environment = readFileSync(`/proc/${pid}/environ`).toString().split('\0');
+    const marker = environment.find(entry => entry.startsWith(`${OWNER_TOKEN_ENV}=`));
+    if (marker === `${OWNER_TOKEN_ENV}=${token}`) return 'owned';
+    return marker ? 'mismatched' : 'scrubbed';
   } catch (error) {
     if (error?.code === 'ENOENT') return 'exited';
+    if (error?.code === 'EACCES' || error?.code === 'EPERM') return 'inaccessible';
     throw error;
   }
+}
+
+function startTicksAtLeast(candidate, root) {
+  try { return BigInt(candidate) >= BigInt(root); }
+  catch { throw new Error('invalid Linux process birth start ticks'); }
+}
+
+/**
+ * Classify a single, immutable Linux process snapshot for one registered root.
+ * Token-less/inaccessible members are delegated ownership only through exact
+ * PPID ancestry from a birth-verified root (or an independently owned marker
+ * after that root exits). Same-PGID membership alone never grants ownership.
+ */
+export function classifyLinuxAncestrySnapshot(record, rows) {
+  const liveRows = rows.filter(row => !row.state?.startsWith('Z'));
+  const byPid = new Map(liveRows.map(row => [row.pid, row]));
+  const registeredRoot = byPid.get(record.pid);
+  const rootStart = record.birth?.startTicks;
+  const groupRows = record.groupRoot ? liveRows.filter(row => row.pgid === record.groupRoot) : liveRows;
+  let seeds;
+  let expectedPgid;
+  let expectedSid;
+
+  if (registeredRoot) {
+    if (!sameIdentity(registeredRoot.birth, record.birth)) throw new Error(`owned PID ${record.pid} birth identity changed`);
+    if (registeredRoot.tokenState !== 'owned') throw new Error(`registered root ${record.pid} has unverifiable or mismatched owner token`);
+    seeds = [registeredRoot];
+    expectedPgid = registeredRoot.pgid;
+    expectedSid = registeredRoot.sid;
+  } else {
+    seeds = groupRows.filter(row => row.tokenState === 'owned' && startTicksAtLeast(row.birth?.startTicks, rootStart));
+    if (!seeds.length) {
+      const blocked = groupRows.filter(row => ['scrubbed', 'inaccessible', 'mismatched'].includes(row.tokenState));
+      if (blocked.length) throw new Error(`registered root ${record.pid} exited with unverifiable same-group members: ${blocked.map(row => row.pid).join(',')}`);
+      return [];
+    }
+    expectedPgid = record.groupRoot || seeds[0].pgid;
+    expectedSid = seeds[0].sid;
+    if (seeds.some(row => row.pgid !== expectedPgid || row.sid !== expectedSid)) {
+      throw new Error(`independently owned markers for exited root ${record.pid} disagree on group or session`);
+    }
+  }
+
+  const accepted = new Set(seeds.map(row => row.pid));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const row of liveRows) {
+      if (!accepted.has(row.pid) && accepted.has(row.ppid)) {
+        accepted.add(row.pid);
+        changed = true;
+      }
+    }
+  }
+
+  for (const pid of accepted) {
+    const row = byPid.get(pid);
+    if (!startTicksAtLeast(row.birth?.startTicks, rootStart)) throw new Error(`descendant ${pid} predates registered root ${record.pid}`);
+    if (row.pgid !== expectedPgid || row.sid !== expectedSid) throw new Error(`descendant ${pid} changed expected group or session for registered root ${record.pid}`);
+    if (row.tokenState === 'mismatched') throw new Error(`descendant ${pid} has a readable mismatched owner token`);
+    if (!['owned', 'scrubbed', 'inaccessible'].includes(row.tokenState)) throw new Error(`descendant ${pid} has unknown owner-token state`);
+  }
+
+  if (record.groupRoot) {
+    const unrelated = groupRows.filter(row => !accepted.has(row.pid));
+    if (unrelated.length) throw new Error(`owned process group ${record.groupRoot} contains unrelated PIDs outside verified ancestry: ${unrelated.map(row => row.pid).join(',')}`);
+  }
+  return [...accepted].sort((left, right) => left - right);
 }
 
 export function parseMacProcessTable(text, token) {
@@ -507,19 +596,30 @@ function liveRecordTargets(record, context) {
     }
     return [record.pid];
   }
-  const rows = posixProcessTable().filter(row => !row.state.startsWith('Z'));
-  const candidates = record.groupRoot ? rows.filter(row => row.pgid === record.groupRoot) : rows.filter(row => row.pid === record.pid);
-  const observed = candidates.map(row => ({ row, tokenState: linuxOwnerTokenState(row.pid, context.token) })).filter(item => item.tokenState !== 'exited');
-  const owned = observed.filter(item => item.tokenState === 'owned').map(item => item.row);
-  const foreign = observed.filter(item => item.tokenState === 'foreign').map(item => item.row);
-  if (owned.length && foreign.length) throw new Error(`owned process target mixes unrelated PIDs for record ${record.pid}: candidates=${observed.map(item => `${item.row.pid}:${item.row.command}`).join(',')} owned=${owned.map(row => row.pid).join(',')}`);
-  if (owned.some(row => row.pid === record.pid) && !sameIdentity(linuxBirthIdentity(record.pid), record.birth)) {
-    throw new Error(`owned PID ${record.pid} birth identity changed`);
+  return linuxPidfdRecord(record, context, true).targets;
+
+}
+
+function linuxPidfdRecord(record, context, verify = false, timeoutMs = 5000) {
+  const helper = fileURLToPath(new URL('./library_depth_linux_pidfd.py', import.meta.url));
+  // Python retains every acquired pidfd through validation, freeze, KILL and poll.
+  // No timeout-driven numeric PID/PGID fallback; a failed helper taints verification.
+  const result = spawnSync('python3', [helper], {
+    input: JSON.stringify({ record, token: context.token, verify, timeout: Math.min(timeoutMs, 3000) / 1000 }),
+    encoding: 'utf8', maxBuffer: 1024 * 1024
+  });
+  let receipt;
+  try { receipt = JSON.parse(result.stdout || ''); } catch { /* fail closed below */ }
+  if (result.error || result.status !== 0 || receipt?.ok !== true) {
+    verifiedCleanRegistries.delete(context.registryIdentity.key);
+    if (!verify) linuxIncompleteContexts.add(context);
+    throw new Error(`cleanupIncomplete: ${receipt?.message || result.error?.message || result.stderr || 'invalid Linux pidfd receipt'}`);
   }
-  return owned.map(row => row.pid);
+  return receipt;
 }
 
 function signalRecord(record, signal) {
+  if (process.platform === 'linux') throw new Error('Linux requires retained pidfd signaling');
   const target = record.groupRoot ? -record.groupRoot : record.pid;
   try { process.kill(target, signal); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
 }
@@ -536,7 +636,12 @@ async function waitForRecordExit(record, context, timeoutMs) {
 
 export async function cleanupOwnedProcessRegistry(context, timeoutMs = 5000) {
   const records = readOwnershipRecords(context);
-  if (process.platform === 'win32') {
+  if (process.platform === 'linux') {
+    for (const record of [...records].reverse()) {
+      if (record.pid === process.pid) continue;
+      linuxPidfdRecord(record, context, false, timeoutMs);
+    }
+  } else if (process.platform === 'win32') {
     for (const record of [...records].reverse()) {
       if (record.pid === process.pid) continue;
       if (!liveRecordTargets(record, context).length) continue;
@@ -561,6 +666,7 @@ export async function cleanupOwnedProcessRegistry(context, timeoutMs = 5000) {
 }
 
 export async function verifyOwnedProcessRegistryClean(context) {
+  if (process.platform === 'linux' && linuxIncompleteContexts.has(context)) throw new Error('cleanupIncomplete: previous Linux ownership failure');
   const live = [];
   for (const record of readOwnershipRecords(context)) {
     if (record.pid === process.pid) continue;

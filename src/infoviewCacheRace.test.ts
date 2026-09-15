@@ -29,6 +29,7 @@ vi.mock('vscode', async () => {
 vi.mock('./preferences', () => ({ read_extension_preferences: () => ({ language: 'en' }) }));
 vi.mock('./panelUtil', () => ({ firstWorkspaceFolder: () => vscode.Uri.file(state.root) }));
 import { InfoviewPanel } from './infoviewPanel';
+import { LibraryBodyHost } from './libraryBodyHost';
 import { initSnlDoc, createEntryKind, createLibrary, createMacroPackage, addMacro,
   addEntry, readEntries, updateEntry, entityRevision, readRelationships } from './snlDoc';
 import { cachePath } from './derivedCache';
@@ -52,14 +53,14 @@ async function fixture() {
   expect((await readRelationships(uri)).map(r => r.id)).toEqual(['manual']); // warm old A artifact
   const posted: any[] = [];
   const panel: any = Object.assign(Object.create(InfoviewPanel.prototype), {
-    viewGeneration: 0, entryHistory: [], fallbackReturnRoute: { kind: 'root' }, contentLanguage: 'en',
+    libraryBody: new LibraryBodyHost(), viewGeneration: 0, entryHistory: [], fallbackReturnRoute: { kind: 'root' }, contentLanguage: 'en',
     panel: { webview: { postMessage: async (m: unknown) => { posted.push(m); return true; } } }
   });
   return { uri, panel, posted };
 }
 
 it.each(['counters', 'relationships'] as const)('keeps current B relationships and PageRank when old A resumes at %s I/O', async boundary => {
-  const { uri, panel, posted } = await fixture();
+  const { uri, panel, posted: allPosted } = await fixture();
   const capturedA = deferred(), oldPaused = deferred(), releaseOld = deferred();
   const currentLookup = deferred(), releaseCurrent = deferred();
   const originalRead = vscode.workspace.fs.readFile.bind(vscode.workspace.fs);
@@ -90,6 +91,12 @@ it.each(['counters', 'relationships'] as const)('keeps current B relationships a
     await currentLookup.promise; // current B owns runner lookup, not yet settled
     releaseOld.resolve(); await old; // old A can enter runner after B (no UI publication)
     releaseCurrent.resolve(); await current;
+    // The early body is now independent from the complete global ACK. Old A
+    // may publish its body before retirement, but must never ACK global data.
+    expect(allPosted.map(m => [m.type, m.bodyGeneration])).toEqual(boundary === 'counters'
+      ? [['libraryEntries', 2], ['libraryRegions', 2]]
+      : [['libraryEntries', 1], ['libraryEntries', 2], ['libraryRegions', 2]]);
+    const posted = allPosted.filter(m => m.type === 'libraryRegions');
     expect(posted).toHaveLength(1);
     expect(posted[0].entryRecords.find((e: any) => e.id === 'A').content.snl).toBe('testMacro');
     expect(posted[0].relationships.map((r: any) => r.id).sort()).toEqual(['dep.A.B', 'manual']);
@@ -106,10 +113,12 @@ it('does not let a retired Library request enter shared SSI/PageRank after graph
   const { panel } = await fixture();
   const paused = deferred(), release = deferred();
   const originalRead = vscode.workspace.fs.readFile.bind(vscode.workspace.fs);
-  let blocked = false;
+  let graphReads = 0;
   vi.spyOn(vscode.workspace.fs, 'readFile').mockImplementation(async u => {
     const bytes = await originalRead(u);
-    if (u.fsPath.endsWith('/lib/graph.json') && !blocked) { blocked = true; paused.resolve(); await release.promise; }
+    // First graph read belongs to the point-read body; second follows the
+    // complete dependency computation, matching this historical race seam.
+    if (u.fsPath.endsWith('/lib/graph.json') && ++graphReads === 2) { paused.resolve(); await release.promise; }
     return bytes;
   });
   const runner = vi.spyOn(cache, 'getOrGenerateCache');

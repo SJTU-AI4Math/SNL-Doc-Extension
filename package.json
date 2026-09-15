@@ -493,7 +493,7 @@
     "smoke:vsix-host": "node scripts/smoke-vsix-host.mjs"
   },
   "dependencies": {
-    "@sjtu-ai4math/snl-basics": "0.3.5",
+    "@sjtu-ai4math/snl-basics": "git+https://github.com/SJTU-AI4Math/SNL-Basics.git#7290b702dd275c63d70134f9adda15807ebbe9c2",
     "fuse.js": "^7.5.0",
     "katex": "^0.16.0",
     "mdast-util-from-markdown": "^2.0.2",

@@ -1591,11 +1591,13 @@ export function CreateMacroApp(): React.ReactElement {
 
   const draftMacro: SnlMacro = useMemo(() => {
     const styleList: SnlMacroStyle[] = styles.map((style) => {
-      const extended = styleDraftToExtended(style, dynamicArity);
+      // Only the draft render record follows each Style's local editor projection.
+      // Persistence keeps the complete locale maps; workspace arguments still use
+      // the panel Reader language, independently of this unsaved template.
       return {
-        style_name: extended.style_name,
-        tags: extended.tags,
-        template: extended.template
+        style_name: style.style_name,
+        tags: style.tags,
+        template: projectionToExtendedTemplate(projectionFromStyle(style), dynamicArity)
       } as SnlMacroStyle;
     });
     const previewStyles: SnlMacroStyle[] = styleList.length > 0

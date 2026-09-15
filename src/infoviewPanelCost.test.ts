@@ -3,6 +3,9 @@ import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 let workspacePath = '';
+let seedWorkspace: () => Promise<void>;
+let libraryMode = false;
+const phaseReadCounts: Array<Record<string, number>> = [];
 import { entryEntityPath, packageManifestPath } from './entityStorage';
 
 /**
@@ -53,9 +56,11 @@ const COLLIDING = ['core', 'core-extra'];
 const ALL_PACKAGES = [...PACKAGES, ...COLLIDING];
 const LIBRARY = 'algebra';
 
-vi.mock('vscode', () => {
+vi.mock('vscode', async () => {
+  const fs = await import('node:fs/promises');
+  const pathModule = await import('node:path');
   const FileType = { File: 1, Directory: 2 };
-  const encoder = new TextEncoder();
+
 
   const payloadFor = (path: string): string => {
     const name = path.split('/').pop() ?? '';
@@ -73,8 +78,8 @@ vi.mock('vscode', () => {
     switch (name) {
       case 'config.json':
         return JSON.stringify({
-          version: entityMode ? '0.1.0' : '0.0.4',
-          active_macro_packages: entityMode ? [] : ALL_PACKAGES,
+          version: (entityMode || libraryMode) ? '0.1.0' : '0.0.4',
+          active_macro_packages: (entityMode || libraryMode) ? [] : ALL_PACKAGES,
           entry_kinds: [{ id: 'k1', name: 'Definition', defaultCounterName: 'c', style: '', coloring: {
             light: { stroke: '#111111', background: '#eeeeee' },
             dark: { stroke: '#dddddd', background: '#222222' }
@@ -83,7 +88,7 @@ vi.mock('vscode', () => {
             light: { stroke: '#123456', background: '#abcdef' },
             dark: { stroke: '#fedcba', background: '#654321' }
           } }],
-          ...(entityMode && !missingEntityStorageMetadata ? {
+          ...((entityMode || libraryMode) && !missingEntityStorageMetadata ? {
             entity_storage: {
               version: 1,
               legacy_backup_version: '0.0.5',
@@ -149,9 +154,22 @@ vi.mock('vscode', () => {
     }
   };
 
+  seedWorkspace = async () => {
+    const base = pathModule.join(workspacePath, '.SNL_Doc');
+    const files = ['config.json', 'entries.json', 'relationships.json',
+      ...ALL_PACKAGES.map(n => `term_macros/${n}.json`),
+      ...['meta.json', 'graph.json', 'counters.json'].map(n => `libraries/${LIBRARY}/${n}`),
+      packageManifestPath('logic'), entryEntityPath('logic', 'e1'), entryEntityPath('logic', 'e2')];
+    for (const name of files) {
+      const p = pathModule.join(base, name);
+      await fs.mkdir(pathModule.dirname(p), { recursive: true });
+      await fs.writeFile(p, payloadFor(p));
+    }
+  };
+
   const joinPath = (base: { path: string }, ...parts: string[]) => {
     const path = [base.path, ...parts].join('/');
-    return { path, fsPath: path, toString: () => path };
+    return { scheme: 'file', path, fsPath: path, toString: () => `file://${path}` };
   };
 
   return {
@@ -190,10 +208,17 @@ vi.mock('vscode', () => {
           asWebviewUri: (u: { toString(): string }) => u,
           postMessage: (m: Record<string, unknown>) => {
             posted.push(m);
+            if (m.type === 'libraryEntries') {
+              phaseReadCounts.push({ ...readCounts });
+              for (const key of Object.keys(readCounts)) delete readCounts[key];
+            }
             return Promise.resolve(true);
           },
           onDidReceiveMessage: (h: (message: unknown) => unknown) => {
-            onMessage = h;
+            onMessage = message => {
+              if ((message as { type: string }).type === 'openDashboardForEntry') return h(message);
+              return seedWorkspace().then(() => h(message));
+            };
             return { dispose: () => undefined };
           }
         },
@@ -204,7 +229,7 @@ vi.mock('vscode', () => {
       }
     },
     workspace: {
-      get workspaceFolders() { return [{ uri: { path: workspacePath, fsPath: workspacePath, toString: () => workspacePath } }]; },
+      get workspaceFolders() { return [{ uri: { scheme: 'file', path: workspacePath, fsPath: workspacePath, toString: () => `file://${workspacePath}` } }]; },
       getConfiguration: () => ({ get: () => undefined }),
       onDidChangeConfiguration: (handler: (event: { affectsConfiguration(key: string): boolean }) => void) => {
         configurationHandlers.push(handler);
@@ -219,23 +244,9 @@ vi.mock('vscode', () => {
       fs: {
         readDirectory: async (uri: { path: string }) => {
           directoryReadCounts[uri.path] = (directoryReadCounts[uri.path] ?? 0) + 1;
-          if (uri.path.endsWith('/entries') && entityMode) {
-            return [
-              [entryEntityPath('logic', 'e1').split('/').pop()!, FileType.File],
-              [entryEntityPath('logic', 'e2').split('/').pop()!, FileType.File]
-            ] as Array<[string, number]>;
-          }
-          if (uri.path.endsWith('/term_macros')) {
-            return ALL_PACKAGES.map(
-              (name) => [`${name}.json`, FileType.File] as [string, number]
-            );
-          }
-          if (uri.path.endsWith('/libraries')) {
-            return [[LIBRARY, FileType.Directory] as [string, number]];
-          }
-          return [];
+          return (await fs.readdir(uri.path, { withFileTypes: true })).map(d => [d.name, d.isDirectory() ? FileType.Directory : FileType.File]);
         },
-        stat: async () => ({ type: FileType.File }),
+        stat: async (uri: { path: string }) => { const s = await fs.lstat(uri.path); return { type: s.isDirectory() ? 2 : 1, size: s.size, mtime: s.mtimeMs, ctime: s.ctimeMs }; },
         readFile: async (uri: { path: string }) => {
           const name = uri.path.split('/').pop() ?? '';
           readCounts[name] = (readCounts[name] ?? 0) + 1;
@@ -251,7 +262,7 @@ vi.mock('vscode', () => {
               name === packageManifestPath('logic').split('/').pop()) {
             throw Object.assign(new Error('missing'), { code: 'FileNotFound' });
           }
-          return encoder.encode(payloadFor(uri.path));
+          return fs.readFile(uri.path);
         }
       }
     }
@@ -288,12 +299,14 @@ function reset(): void {
 /** Open the singleton browser panel fresh and return its message pump. */
 async function openBrowser(initialLibrarySlug?: string): Promise<(message: unknown) => Promise<void>> {
   const { InfoviewPanel } = await loadPanel();
+  libraryMode = !!initialLibrarySlug;
   // The browser panel is a singleton; drop any instance a prior test left.
   (InfoviewPanel as unknown as { browserPanel: unknown }).browserPanel = undefined;
   InfoviewPanel.createOrShow(extensionUri, initialLibrarySlug);
   const handler = onMessage;
   if (!handler) throw new Error('panel did not register a message handler');
   return async (message: unknown) => {
+    if ((message as { type: string }).type === 'selectLibrary') libraryMode = true;
     await handler(message);
   };
 }
@@ -301,6 +314,8 @@ async function openBrowser(initialLibrarySlug?: string): Promise<(message: unkno
 describe('infoview panel read cost', () => {
   beforeEach(async () => {
     reset();
+    libraryMode = false;
+    phaseReadCounts.length = 0;
     // Real backing root for the optional Node cache; authored reads remain
     // instrumented through vscode.fs, preserving every I/O count assertion.
     workspacePath = await mkdtemp(join(tmpdir(), 'snl-infoview-cost-'));
@@ -386,7 +401,7 @@ describe('infoview panel read cost', () => {
     malformedRelationships = true;
     await send({ type: 'selectLibrary', slug: LIBRARY });
     expect(posted).toContainEqual(expect.objectContaining({
-      type: 'libraryEntries',
+      type: 'libraryRegions',
       slug: LIBRARY,
       outline: expect.any(Array),
       relationships: [],
@@ -441,7 +456,7 @@ describe('infoview panel read cost', () => {
     reset();
     await send({ type: 'selectLibrary', slug: LIBRARY });
 
-    const message = posted.find((item) => item.type === 'libraryEntries');
+    const message = posted.find((item) => item.type === 'libraryRegions');
     expect(message?.entryRecords).toEqual([
       expect.objectContaining({ id: 'e1', content: { snl: 'x' } })
     ]);
@@ -454,7 +469,10 @@ describe('infoview panel read cost', () => {
     await send({ type: 'selectLibrary', slug: LIBRARY });
 
     expect(posted.some((m) => m.type === 'libraryEntries')).toBe(true);
-    for (const [name, count] of Object.entries(readCounts)) {
+    // The lazy body and complete workspace are independent read epochs.
+    // Neither epoch may reread an authored file; pin both, not their sum.
+    expect(phaseReadCounts).toHaveLength(1);
+    for (const counts of [...phaseReadCounts, readCounts]) for (const [name, count] of Object.entries(counts)) {
       // config.json legitimately backs several independent catalogs
       // (entry_kinds / macro_kinds / active packages); everything else must
       // be read exactly once per push.
@@ -545,7 +563,7 @@ describe('infoview panel read cost', () => {
     await send({ type: 'selectLibrary', slug: LIBRARY });
 
     expect(posted).toContainEqual(expect.objectContaining({
-      type: 'libraryEntries',
+      type: 'libraryRegions',
       // e2 stays available to live cross-Entry syntax/package lookup but is
       // absent from graph.json, so its body and edge are not exportable.
       entryPackages: { e1: 'logic', e2: 'logic' },

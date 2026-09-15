@@ -22,11 +22,11 @@ const projectionMacro = {
   styles: [
     {
       style_name: 'default', tags: [],
-      template: { mode: 'formula_inline', body: '#0' }
+      template: { mode: 'formula_inline', body: '#0 + #3' }
     },
     {
       style_name: 'complete', tags: [],
-      template: { mode: 'formula_inline', body: '#0 + #1 + #2' }
+      template: { mode: 'formula_inline', body: '#0 + #1 + #2 + #3' }
     }
   ]
 } as never;
@@ -101,7 +101,7 @@ describe('Canvas production renderer integration', () => {
         style_name: 'default'
       };
       const root: SnlSyntaxTree = {
-        ...node('projection', [nested, text('sibling-hidden'), text('second-hidden')]),
+        ...node('projection', [nested, text('sibling-hidden'), text('second-hidden'), text('sentinel-shown')]),
         style_name: complete ? 'complete' : 'default'
       };
       return (
@@ -125,7 +125,7 @@ describe('Canvas production renderer integration', () => {
           .toBeTruthy();
       }
     });
-    for (const path of ['0', '0.0', '0.1', '1', '2']) {
+    for (const path of ['0', '0.0', '0.1', '1', '2', '3']) {
       expect(view.container.querySelectorAll(`[data-tree-path="${path}"]`)).toHaveLength(1);
     }
 
@@ -135,7 +135,7 @@ describe('Canvas production renderer integration', () => {
       expect(view.container.querySelector('[data-canvas-structural-fallback="2"]')).toBeNull();
     });
     expect(view.container.querySelector('[data-canvas-structural-fallback="0.1"]')).toBeTruthy();
-    for (const path of ['0', '0.0', '0.1', '1', '2']) {
+    for (const path of ['0', '0.0', '0.1', '1', '2', '3']) {
       expect(view.container.querySelectorAll(`[data-tree-path="${path}"]`)).toHaveLength(1);
     }
   });

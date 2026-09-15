@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { LibraryBodyHost } from './libraryBodyHost';
+import { LibraryBodyHost, installLibraryWatcher } from './libraryBodyHost';
 import { bind_preferences_panel_title } from './preferencesHost';
 import {
   addEntry,
@@ -20,7 +20,7 @@ import {
   type GraphRelationshipDto
 } from './snlDoc';
 import { buildPanelHtml, classifyLibraryEditorWatchPath, firstWorkspaceFolder,
-  handlePanelNavMessage, installSnlDocWatcher
+  handlePanelNavMessage
 } from './panelUtil';
 import { readEntryMetricThresholds } from './entryMetricSettings';
 import { moveGraphSibling } from './graphSiblingOrder';
@@ -261,7 +261,7 @@ export class CreateLibraryPanel {
       this.disposables
     );
 
-    installSnlDocWatcher(this.disposables, (uris) => {
+    installLibraryWatcher(this.disposables, (uris) => {
       const targets = uris?.map((uri) =>
         classifyLibraryEditorWatchPath(uri.path, this.slug)
       ) ?? ['context'];
@@ -275,6 +275,9 @@ export class CreateLibraryPanel {
       if (!this.libraryBody.invalidate(uri, this.slug)) return false;
       this.contextGeneration++; this.graphGeneration++; this.counterGeneration++;
       return true;
+    }, () => {
+      this.libraryBody.retire();
+      this.contextGeneration++; this.graphGeneration++; this.counterGeneration++;
     });
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration((event) => {
@@ -289,6 +292,7 @@ export class CreateLibraryPanel {
   }
 
   private async pushContext(): Promise<void> {
+    if (this.disposed) return;
     const generation = ++this.contextGeneration;
     if (this.mode === 'create') {
       void this.panel.webview.postMessage({ type: 'context', mode: 'create', targetState: 'found' });
@@ -364,6 +368,8 @@ export class CreateLibraryPanel {
   }
 
   private transitionToEdit(slug: string): void {
+    this.libraryBody.retire();
+    this.contextGeneration++; this.graphGeneration++; this.counterGeneration++;
     const currentKey = `${this.mode}:${this.slug}`;
     if (CreateLibraryPanel.instances.get(currentKey) === this) {
       CreateLibraryPanel.instances.delete(currentKey);
@@ -382,6 +388,7 @@ export class CreateLibraryPanel {
   /** Push the current graph + entry pool + kinds to the webview so the
    *  outline editor can re-render. */
   private async pushGraph(parentGeneration?: number): Promise<void> {
+    if (this.disposed) return;
     const generation = ++this.graphGeneration;
     const isStale = (): boolean =>
       this.disposed || root?.toString() !== firstWorkspaceFolder()?.toString() ||
@@ -461,6 +468,7 @@ export class CreateLibraryPanel {
   }
 
   private async handleMessage(message: unknown): Promise<void> {
+    if (this.disposed) return;
     // Nav messages (back to Dashboard etc.) MUST be handled first — they
     // don't carry a `title`/`op` and would otherwise fall through the
     // switch below without dispatching. Cat 2026-07-10: 'SNL Edit Library

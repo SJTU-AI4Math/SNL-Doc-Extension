@@ -269,6 +269,9 @@ describe('Library edit whole-draft save', () => {
     const secondSave = postMessage.mock.calls.filter(([message]) =>
       message?.type === 'saveLibraryDraft'
     ).at(-1)?.[0];
+    expect(secondSave.expectedRevisions).toEqual({
+      meta: 'meta-r2', graph: 'graph-r2', counters: 'counter-r2'
+    });
     expect(secondSave.graph.relationships).toEqual([
       { from: 'child', to: 'grandchild', label: 'branch', _draftKey: '0' }
     ]);
@@ -318,6 +321,9 @@ describe('Library edit whole-draft save', () => {
     const secondSave = postMessage.mock.calls.filter(([message]) =>
       message?.type === 'saveLibraryDraft'
     ).at(-1)?.[0];
+    expect(secondSave.expectedRevisions).toEqual({
+      meta: 'meta-r2', graph: 'graph-r2', counters: 'counter-r2'
+    });
     expect(secondSave.graph.relationships).toEqual([
       { from: 'root', to: 'child-1', label: 'branch', _draftKey: '1' },
       { from: 'root', to: 'child-2', label: 'branch', _draftKey: '0' }

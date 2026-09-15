@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { LibraryBodyHost } from './libraryBodyHost';
+import { LibraryBodyHost, installLibraryWatcher } from './libraryBodyHost';
 import { readCachedEntryMetrics } from './ssiCache';
 import { cacheRootForWorkspace } from './cacheRoot';
 import { readReaderPageRank } from './readerPageRank';
@@ -38,7 +38,6 @@ import {
 } from './snlDoc';
 import {
   buildPanelHtml,
-  installSnlDocWatcher,
   firstWorkspaceFolder,
   handleWebviewTraceMessage,
   webviewLocalResourceRoots
@@ -326,7 +325,7 @@ export class InfoviewPanel {
    *     Library again to see the updated outline.
    */
   private installWatcher(): void {
-    installSnlDocWatcher(this.disposables, () => this.currentLibrarySlug
+    installLibraryWatcher(this.disposables, () => this.currentLibrarySlug
       ? this.pushLibraryEntries(this.currentLibrarySlug, !this.refreshLibraryBody) : this.refresh(), undefined, (uri) => {
       if (this.currentLibrarySlug) {
         const otherLibrary = /\/libraries\/([^/]+)\//.exec(uri.path);
@@ -338,6 +337,11 @@ export class InfoviewPanel {
       this.viewGeneration++;
       this.renderSourceContext = undefined; this.readerSnapshot = undefined;
       return true;
+    }, () => {
+      this.viewGeneration++; this.libraryBody.retire();
+      this.refreshLibraryBody = true; this.libraryBodySnapshot = undefined;
+      this.renderSourceContext = undefined; this.readerSnapshot = undefined;
+      if (this.currentLibrarySlug) void this.panel.webview.postMessage({ type: 'libraryInvalidated', slug: this.currentLibrarySlug });
     });
   }
 
@@ -347,6 +351,7 @@ export class InfoviewPanel {
    * on a disposed panel — the webview.postMessage no-ops after dispose.
    */
   public async refresh(): Promise<void> {
+    if (this.disposed) return;
     if (this.currentEntryId !== null) {
       // Per-entry panel: re-push that entry's details.
       await this.pushEntryDetailsForEntry(this.currentEntryId);
@@ -407,6 +412,7 @@ export class InfoviewPanel {
   }
 
   private async handleMessage(message: unknown): Promise<void> {
+    if (this.disposed) return;
     // Timing marks reported by the webview itself, folded into the open
     // trace so the Infoview and the editor panels are directly comparable.
     if (handleWebviewTraceMessage(message, this.openTrace)) return;
@@ -640,6 +646,7 @@ export class InfoviewPanel {
 
   /** Send the top-level Libraries list (layer 1 of 3). */
   private async pushLibraries(): Promise<void> {
+    if (this.disposed) return;
     this.renderSourceContext = undefined; this.readerSnapshot = undefined;
     const generation = ++this.viewGeneration;
     const root = firstWorkspaceFolder();
@@ -678,6 +685,7 @@ export class InfoviewPanel {
    * feed into the `warnings` list.
    */
   private async pushLibraryEntries(slug: string, reuseBody = false): Promise<void> {
+    if (this.disposed) return;
     const generation = ++this.viewGeneration;
     const root = firstWorkspaceFolder();
     this.renderSourceContext = undefined;
@@ -693,8 +701,10 @@ export class InfoviewPanel {
     try {
       const libraries = await listLibraries(root);
       const lib: LibraryEntry | undefined = libraries.find(
+        // The selected metadata result belongs to this generation only.
         (l) => l.slug === slug
       );
+      if (!isCurrent()) return;
       const displayTitle = lib?.title ?? slug;
       const description = lib?.description;
 
@@ -856,11 +866,14 @@ export class InfoviewPanel {
         entryRoutes: renderSourceRoutes(graph.nodes, closure.entries),
         revalidate: async () => {
           if (!isCurrent()) throw new Error('Workspace changed; recapture export.');
-          const [currentLibraries, entries, currentKinds, currentCounters, relationships, currentMacros, currentMacroKinds, currentLanguages] = await Promise.all([
+          const [currentLibraries, entries, currentKinds, currentCounters, currentMacros, currentMacroKinds, currentLanguages] = await Promise.all([
             listLibraries(root), readEntries(root), readEntryKinds(root), readLibraryCounters(root, slug),
-            readRelationships(root), readAllMacros(root), readMacroKinds(root), readWorkspaceSupportedLanguages(root)
+            readAllMacros(root), readMacroKinds(root), readWorkspaceSupportedLanguages(root)
           ]);
+          if (!isCurrent()) throw new Error('Workspace changed; recapture export.');
+          const relationships = await readRelationships(root, { entries, macros: currentMacros });
           const currentGraph = await readLibraryGraph(root, slug, { entryPool: entries });
+          if (!isCurrent()) throw new Error('Workspace changed; recapture export.');
           assertRenderSnapshot(renderSnapshotId, { libraries: currentLibraries, entries, kinds: currentKinds, counters: currentCounters,
             graphResult: currentGraph, relationshipRead: { relationships, error: null }, macros: currentMacros, macroKinds: currentMacroKinds, languages: currentLanguages });
         }

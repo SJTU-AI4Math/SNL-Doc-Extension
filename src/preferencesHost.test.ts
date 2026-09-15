@@ -1,4 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { promises as fs } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { readWorkspaceSvgSource } from './workspaceAssets';
+import { buildPanelHtml } from './panelUtil';
+import * as vscode from 'vscode';
 
 const mocks = vi.hoisted(() => ({
   language: 'en',
@@ -15,10 +22,12 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('vscode', () => ({
   ConfigurationTarget: { Global: 1, Workspace: 2 },
+  FileType: { File: 1, Directory: 2, SymbolicLink: 64 },
   RelativePattern: class { constructor(public base: unknown, public pattern: string) {} },
   Uri: {
     joinPath: (base: { path: string; scheme?: string; authority?: string }, ...segments: string[]) => ({
-      ...base, path: [base.path.replace(/\/$/, ''), ...segments].join('/')
+      ...base, path: [base.path.replace(/\/$/, ''), ...segments].join('/'),
+      fsPath: [base.path.replace(/\/$/, ''), ...segments].join('/')
     })
   },
   workspace: {
@@ -173,6 +182,93 @@ describe('PreferencesHost language writes', () => {
     host.dispose();
   });
 
+  it('relays identity through buildPanelHtml actual service adapter before real filesystem I/O', async () => {
+    const root = await fs.mkdtemp(join(tmpdir(), 'snl-panel-read-svg-'));
+    const disposables: Array<{ dispose(): void }> = [];
+    const workspaceRoot = { path: root, fsPath: root, scheme: 'file' };
+    const previous = { workspaceFolders: vscode.workspace.workspaceFolders, fs: vscode.workspace.fs };
+    try {
+      await fs.mkdir(join(root, '.SNL_Doc/assets'), { recursive: true });
+      const value = '<svg><!--actual adapter--></svg>';
+      await fs.writeFile(join(root, '.SNL_Doc/assets/proof.svg'), value);
+      const revision = `sha256:${createHash('sha256').update(value).digest('hex')}`;
+      const stat = vi.fn(async (target: { fsPath: string }) => {
+        const s = await fs.lstat(target.fsPath);
+        return { type: s.isFile() ? 1 : 2, size: s.size };
+      });
+      Object.assign(vscode.workspace, { workspaceFolders: [{ uri: workspaceRoot }], fs: { stat } });
+      initialize_preferences_host({ globalStorageUri: workspaceRoot, subscriptions: disposables } as never);
+      let receive = (_message: unknown): void => undefined;
+      const postMessage = vi.fn(async () => true);
+      buildPanelHtml(workspaceRoot as never, {
+        asWebviewUri: () => ({ toString: () => 'vscode-webview://trusted/test' }),
+        cspSource: 'vscode-webview://trusted', postMessage,
+        onDidReceiveMessage: (listener: typeof receive) => { receive = listener; return { dispose() {} }; }
+      } as never, 'createMacro', 'SVG adapter', disposables);
+      for (const base_identity of ['workspace:.SNL_Doc/assets', 'offline:P']) {
+        stat.mockClear();
+        const open = vi.spyOn(fs, 'open');
+        const request = { request_id: base_identity, source: 'assets/proof.svg', base_identity, revision };
+        try {
+          receive({ type: 'snl.assets/read-svg', ...request });
+          const envelope = { type: 'snl.assets/svg-source', ...request };
+          if (base_identity === 'workspace:.SNL_Doc/assets') {
+            await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith({ ...envelope, value }));
+            expect(open).toHaveBeenCalled();
+          } else {
+            await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith({ ...envelope, error: expect.stringMatching(/base identity/i) }));
+            expect(stat).not.toHaveBeenCalled();
+            expect(open).not.toHaveBeenCalled();
+          }
+        } finally { open.mockRestore(); }
+      }
+    } finally {
+      disposables.reverse().forEach(d => d.dispose());
+      Object.assign(vscode.workspace, previous);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('bridges actual request identity to the real filesystem reader', async () => {
+    const root = await fs.mkdtemp(join(tmpdir(), 'snl-host-svg-'));
+    const host = new PreferencesHost();
+    try {
+      await fs.mkdir(join(root, '.SNL_Doc/assets'), { recursive: true });
+      const value = '<svg><!--bridge--></svg>';
+      await fs.writeFile(join(root, '.SNL_Doc/assets/proof.svg'), value);
+      const revision = `sha256:${createHash('sha256').update(value).digest('hex')}`;
+      const stat = vi.fn(async (target: { fsPath: string }) => {
+        const s = await fs.lstat(target.fsPath);
+        return { type: s.isFile() ? 1 : 2, size: s.size };
+      });
+      // Only the VS Code surface is substituted: host and filesystem read are real.
+      const service = {
+        resolve: vi.fn(),
+        readSvg: (relativePath: string, expectedRevision: string, baseIdentity?: string) =>
+          readWorkspaceSvgSource({ workspaceRoot: { path: root, fsPath: root, scheme: 'file' } as never,
+            relativePath, expectedRevision, baseIdentity, fsApi: { stat } as never })
+      };
+      const webview = register(host, undefined, service);
+      for (const base_identity of ['workspace:.SNL_Doc/assets', 'offline:P']) {
+        stat.mockClear();
+        const open = vi.spyOn(fs, 'open');
+        const request = { request_id: base_identity, source: 'assets/proof.svg', base_identity, revision };
+        webview.receive({ type: 'snl.assets/read-svg', ...request });
+        const envelope = { type: 'snl.assets/svg-source', ...request };
+        try {
+          if (base_identity === 'workspace:.SNL_Doc/assets') {
+            await vi.waitFor(() => expect(webview.postMessage).toHaveBeenCalledWith({ ...envelope, value }));
+            expect(open).toHaveBeenCalled();
+          } else {
+            await vi.waitFor(() => expect(webview.postMessage).toHaveBeenCalledWith({ ...envelope, error: expect.stringMatching(/base identity/i) }));
+            expect(stat).not.toHaveBeenCalled();
+            expect(open).not.toHaveBeenCalled();
+          }
+        } finally { open.mockRestore(); }
+      }
+    } finally { host.dispose(); await fs.rm(root, { recursive: true, force: true }); }
+  });
+
   it('returns immutable raw SVG source through the correlated asset bridge', async () => {
     const assetService = {
       resolve: vi.fn(),
@@ -199,7 +295,8 @@ describe('PreferencesHost language writes', () => {
     }));
     expect(assetService.readSvg).toHaveBeenCalledWith(
       'figures/proof.svg',
-      `sha256:${'a'.repeat(64)}`
+      `sha256:${'a'.repeat(64)}`,
+      'Logic'
     );
     webview.receive({
       type: 'snl.assets/read-svg', request_id: 'svg-bad', source: 'assets/../secret.svg',

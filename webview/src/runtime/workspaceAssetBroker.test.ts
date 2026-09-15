@@ -58,6 +58,15 @@ afterEach(() => {
 });
 
 describe('workspace asset broker', () => {
+  it('exposes only disposal, not broker bookkeeping, on the public handle', () => {
+    const broker = installWorkspaceAssetBroker({ postMessage: vi.fn() });
+    disposables.push(broker);
+    // A global bundle substring ban also hits legitimate SDK consumer counts.
+    // Observe the broker's real public surface, including nonenumerable keys.
+    expect(Reflect.ownKeys(broker)).toEqual(['dispose']);
+    expect(typeof broker.dispose).toBe('function');
+  });
+
   it('preserves native image metadata that this DOM broker does not own for portable static exports', async () => {
     const base = 'vscode-webview://panel/workspace/assets';
     const cached = 'vscode-webview://trusted-cache/native.svg';

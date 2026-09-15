@@ -1,8 +1,15 @@
 import { createHash } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import * as childProcess from 'node:child_process';
+import { chmodSync, fstatSync, promises as fs, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// Native ESM namespace properties are immutable. Expose a configurable facade,
+// retaining the real spawnSync implementation (including the real /bin/ln).
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...await importOriginal<typeof import('node:child_process')>()
+}));
 
 vi.mock('vscode', async () => {
   const nodeFs = await import('node:fs/promises');
@@ -51,6 +58,175 @@ const source = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><pat
 const template = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g data-snl-slot="0" transform="translate(1 2)"/></svg>';
 
 describe('writeWorkspaceSvgMacroAssets', () => {
+  // IG-TEST-PHASE: .source./.next are not writable paths with O_TMPFILE.
+  // The wrapper brackets the real kernel open, not merely the API invocation.
+  it.each([
+    ['svg', 'before', false], ['svg', 'after', false],
+    ['svg', 'before', true], ['svg', 'after', true],
+    ['ancestor', 'before', true], ['ancestor', 'after', true], ['svg', 'control', true]
+  ] as const)('phase-faithful %s swap %s physical anonymous open (foreign=%s)', async (scope, phase, foreign) => {
+    const root = await workspace();
+    const snlDoc = join(root.fsPath, '.SNL_Doc');
+    const assets = join(snlDoc, 'assets');
+    const svgRoot = join(assets, 'svg');
+    await fs.mkdir(svgRoot, { recursive: true });
+    const outside = await fs.mkdtemp(join(tmpdir(), 'snl-svg-phase-'));
+    roots.push(outside);
+    const foreignRoot = scope === 'svg' ? outside : join(outside, 'assets', 'svg');
+    await fs.mkdir(foreignRoot, { recursive: true });
+    const sourceName = `phase.source.${createHash('sha256').update(source).digest('hex')}.svg`;
+    const foreignFile = join(foreignRoot, sourceName);
+    if (foreign) await fs.writeFile(foreignFile, 'foreign bytes: do not unlink, rename, or overwrite');
+    const identity = (stat: { dev: bigint; ino: bigint }) => `${stat.dev}:${stat.ino}`;
+    const originalPaths = [root.fsPath, snlDoc, assets, svgRoot];
+    const originalIdentities = await Promise.all(originalPaths.map(async (path) => identity(await fs.stat(path, { bigint: true }))));
+    const foreignIdentity = foreign ? identity(await fs.stat(foreignFile, { bigint: true })) : undefined;
+    const foreignParent = identity(await fs.stat(foreignRoot, { bigint: true }));
+    const swapPath = scope === 'svg' ? svgRoot : snlDoc;
+    const movedPath = `${swapPath}-phase-held`;
+    const heldSvg = scope === 'svg' ? movedPath : join(movedPath, 'assets', 'svg');
+    const events: string[] = [];
+    const physicalParents: string[] = [];
+    const authorityIdentities: string[] = [];
+    const anonymousLinks: bigint[] = [];
+    const publications: Array<{ command: string; name: string; parent: string; status: number | null }> = [];
+    let physicalOpens = 0;
+    let anonymousCloses = 0;
+    let writes = 0;
+    let swapped = false;
+    const originalOpen = fs.open.bind(fs);
+    const originalSpawn = childProcess.spawnSync;
+    const linkSpy = vi.spyOn(childProcess, 'spawnSync').mockImplementation(((...args: Parameters<typeof childProcess.spawnSync>) => {
+      const [command, argv, options] = args;
+      const stdio = (options as { stdio: number[] }).stdio;
+      const result = originalSpawn(...args);
+      publications.push({ command: String(command), name: String((argv as string[])[3]),
+        parent: identity(fstatSync(stdio[4], { bigint: true })), status: result.status });
+      events.push('link');
+      return result;
+    }) as typeof childProcess.spawnSync);
+    const swap = async () => {
+      await fs.rename(swapPath, movedPath);
+      swapped = true;
+      await fs.symlink(outside, swapPath, 'dir');
+      events.push('swap');
+    };
+    vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+      const anonymous = (Number(flags) & 0o20000000) !== 0;
+      const first = anonymous && physicalOpens === 0;
+      if (first && phase === 'before') await swap();
+      if (anonymous) events.push('physical-open:start');
+      const handle = await originalOpen(path, flags, mode);
+      if (anonymous) {
+        physicalOpens += 1;
+        events.push('physical-open:end');
+        const stat = await handle.stat({ bigint: true });
+        anonymousLinks.push(stat.nlink);
+        // /proc describes the inode actually opened, not the path we hoped to open.
+        const actualPath = await fs.readlink(`/proc/self/fd/${handle.fd}`);
+        const actualParent = actualPath.slice(0, actualPath.lastIndexOf('/'));
+        physicalParents.push(identity(await fs.stat(actualParent, { bigint: true })));
+        const write = handle.writeFile.bind(handle);
+        handle.writeFile = async (...args: Parameters<typeof handle.writeFile>) => {
+          writes += 1;
+          events.push('write');
+          return write(...args);
+        };
+        const close = handle.close.bind(handle);
+        handle.close = async () => { await close(); anonymousCloses += 1; events.push('close'); };
+        if (first && phase === 'after') await swap();
+      } else if ((Number(flags) & fs.constants.O_DIRECTORY) !== 0) {
+        authorityIdentities.push(identity(await handle.stat({ bigint: true })));
+      }
+      return handle;
+    });
+    try {
+      const outcome = await writeWorkspaceSvgMacroAssets({
+        workspaceRoot: root as never, slug: 'phase', sourceSvg: source, templateSvg: template,
+        accessibilityLabel: 'x', operations: []
+      }).then((value) => ({ value, error: undefined }), (error: unknown) => ({ value: undefined, error }));
+      const outsideEntries = await fs.readdir(foreignRoot);
+      console.info('IG-TEST-PHASE', JSON.stringify({ scope, phase, foreign, events, originalIdentities,
+        foreignParent, physicalParents, authorityIdentities, publications, physicalOpens,
+        anonymousCloses, writes, outsideEntries, error: String(outcome.error) }));
+      expect(authorityIdentities).toEqual(originalIdentities);
+      expect(swapped).toBe(phase !== 'control');
+      expect(outsideEntries).toEqual(foreign ? [sourceName] : []);
+      if (foreign) {
+        expect(identity(await fs.stat(foreignFile, { bigint: true }))).toBe(foreignIdentity);
+        expect(await fs.readFile(foreignFile, 'utf8')).toBe('foreign bytes: do not unlink, rename, or overwrite');
+      }
+      if (phase === 'control') {
+        expect(outcome.error).toBeUndefined();
+        expect(outcome.value?.sourcePath).toBe(`svg/${sourceName}`);
+        expect(physicalOpens).toBe(3);
+        expect(linkSpy).toHaveBeenCalledTimes(3);
+        expect(publications.map((entry) => entry.command)).toEqual(['/bin/ln', '/bin/ln', '/bin/ln']);
+        expect(publications.map((entry) => entry.status)).toEqual([0, 0, 0]);
+        expect(publications.every((entry) => entry.parent === originalIdentities[3])).toBe(true);
+        expect(publications.map((entry) => entry.name.split('.')[1])).toEqual(['source', 'template', 'manifest']);
+        expect(await fs.readFile(join(svgRoot, sourceName), 'utf8')).toBe(source);
+      } else {
+        expect(outcome.error).toBeInstanceOf(Error);
+        expect(String(outcome.error)).toMatch(/changed|identity|preserved/i);
+        expect(physicalOpens).toBe(1);
+        expect(events.slice(0, 3)).toEqual(phase === 'before'
+          ? ['swap', 'physical-open:start', 'physical-open:end']
+          : ['physical-open:start', 'physical-open:end', 'swap']);
+        expect(linkSpy).not.toHaveBeenCalled();
+        expect(publications).toEqual([]);
+        expect(await fs.readdir(heldSvg)).toEqual([]);
+        expect(identity(await fs.stat(movedPath, { bigint: true }))).toBe(originalIdentities[scope === 'svg' ? 3 : 1]);
+        expect(identity(await fs.stat(heldSvg, { bigint: true }))).toBe(originalIdentities[3]);
+      }
+      expect(anonymousCloses).toBe(physicalOpens);
+      expect(writes).toBe(physicalOpens);
+      expect(anonymousLinks).toEqual(Array(physicalOpens).fill(0n));
+      expect(physicalParents).toEqual(Array(physicalOpens).fill(originalIdentities[3]));
+    } finally {
+      if (swapped) {
+        await fs.unlink(swapPath);
+        await fs.rename(movedPath, swapPath);
+      }
+    }
+  });
+  it('phase-faithful corruption immediately after the real manifest link rolls back publication', async () => {
+    const root = await workspace();
+    const originalSpawn = childProcess.spawnSync;
+    const events: string[] = [];
+    let corrupted = false;
+    vi.spyOn(childProcess, 'spawnSync').mockImplementation(((...args: Parameters<typeof childProcess.spawnSync>) => {
+      const [command, argv, options] = args;
+      const result = originalSpawn(...args);
+      expect(command).toBe('/bin/ln');
+      expect(result.status).toBe(0);
+      const name = String((argv as string[])[3]).split('/').pop()!;
+      const kind = name.split('.')[1];
+      events.push(`linked:${kind}`);
+      if (kind === 'manifest') {
+        const stdio = (options as { stdio: number[] }).stdio;
+        const target = join(`/proc/self/fd/${stdio[4]}`, name);
+        expect(fstatSync(stdio[3]).nlink).toBe(1);
+        chmodSync(target, 0o600);
+        writeFileSync(target, '{"corrupt":true}\n');
+        chmodSync(target, 0o400);
+        corrupted = true;
+        events.push('corrupt:manifest');
+      }
+      return result;
+    }) as typeof childProcess.spawnSync);
+    await expect(writeWorkspaceSvgMacroAssets({
+      workspaceRoot: root as never, slug: 'phase-corrupt', sourceSvg: source, templateSvg: template,
+      accessibilityLabel: 'x', operations: []
+    })).rejects.toThrow(/bytes|size|verification/i);
+    expect(corrupted).toBe(true);
+    expect(events).toEqual(['linked:source', 'linked:template', 'linked:manifest', 'corrupt:manifest']);
+    const entries = await fs.readdir(join(root.fsPath, '.SNL_Doc', 'assets', 'svg'));
+    expect(entries.filter((name) => name.startsWith('phase-corrupt.'))).toEqual([]);
+    expect(entries.filter((name) => name.startsWith('.snl-quarantine-'))).toHaveLength(3);
+    console.info('IG-TEST-PHASE-LINK', JSON.stringify({ events, corrupted, entries }));
+  });
+
   it('writes content-addressed source/template files and commits the manifest last', async () => {
     const root = await workspace();
     const result = await writeWorkspaceSvgMacroAssets({

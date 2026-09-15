@@ -4,6 +4,8 @@ import { extname, relative, resolve, sep } from 'node:path';
 import * as vscode from 'vscode';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_SVG_SOURCE_BYTES = 1024 * 1024;
+export const SVG_ASSET_BASE_IDENTITY = 'workspace:.SNL_Doc/assets';
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif']);
 const ABSOLUTE_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 
@@ -86,6 +88,12 @@ export async function cacheWorkspaceAsset(
 export async function readWorkspaceAsset(
   options: ReadWorkspaceAssetOptions
 ): Promise<Uint8Array> {
+  return readWorkspaceAssetBounded(options, MAX_IMAGE_BYTES, 'Workspace image', '10 MiB');
+}
+
+async function readWorkspaceAssetBounded(
+  options: ReadWorkspaceAssetOptions, maxBytes: number, label: string, limit: string
+): Promise<Uint8Array> {
   const fsApi = options.fsApi ?? vscode.workspace.fs;
   const segments = validateRelativeImagePath(options.relativePath);
   const assetRoot = vscode.Uri.joinPath(options.workspaceRoot, '.SNL_Doc', 'assets');
@@ -104,8 +112,8 @@ export async function readWorkspaceAsset(
     }
   }
   const targetStat = await fsApi.stat(target);
-  if ((targetStat.type & vscode.FileType.File) === 0 || targetStat.size > MAX_IMAGE_BYTES) {
-    throw new Error('Workspace image must be a regular file no larger than 10 MiB.');
+  if ((targetStat.type & vscode.FileType.File) === 0 || targetStat.size > maxBytes) {
+    throw new Error(`${label} must be a regular file no larger than ${limit}.`);
   }
   await assertLocalRealpathContainment(assetRoot, target);
 
@@ -117,8 +125,8 @@ export async function readWorkspaceAsset(
     );
     try {
       const opened = await handle.stat({ bigint: true });
-      if (!opened.isFile() || opened.size > BigInt(MAX_IMAGE_BYTES)) {
-        throw new Error('Workspace image must be a regular file no larger than 10 MiB.');
+      if (!opened.isFile() || opened.size > BigInt(maxBytes)) {
+        throw new Error(`${label} must be a regular file no larger than ${limit}.`);
       }
       // Revalidate after opening, then bind the path to the opened inode. A
       // check-then-swap cannot redirect the bytes without changing this pair.
@@ -147,8 +155,8 @@ export async function readWorkspaceAsset(
     // closed rather than claiming symlink containment from path checks alone.
     throw new Error('Workspace images require a file-backed workspace.');
   }
-  if (bytes.byteLength > MAX_IMAGE_BYTES) {
-    throw new Error('Workspace image must be no larger than 10 MiB.');
+  if (bytes.byteLength > maxBytes) {
+    throw new Error(`${label} must be no larger than ${limit}.`);
   }
   return bytes;
 }
@@ -156,22 +164,27 @@ export async function readWorkspaceAsset(
 
 /** Read immutable raw SVG source through the same contained, no-symlink asset boundary. */
 export interface ReadWorkspaceSvgSourceOptions extends ReadWorkspaceAssetOptions {
+  /** Omitted only for trusted internal calls; external callers must relay the request identity. */
+  baseIdentity?: string;
   expectedRevision: string;
 }
 
 export async function readWorkspaceSvgSource(
   options: ReadWorkspaceSvgSourceOptions
 ): Promise<string> {
+  if ((options.baseIdentity ?? SVG_ASSET_BASE_IDENTITY) !== SVG_ASSET_BASE_IDENTITY) {
+    throw new Error('Unknown SVG asset base identity.');
+  }
   if (!/\.svg$/i.test(options.relativePath)) {
     throw new Error('SVG template source must use the .svg extension.');
   }
-  const revision = /^sha256:([0-9a-f]{64})$/i.exec(options.expectedRevision);
+  const revision = /^sha256:([0-9a-f]{64})$/.exec(options.expectedRevision);
   if (!revision) {
     throw new Error('SVG template revision must be a sha256:<64-hex> content digest.');
   }
-  const bytes = await readWorkspaceAsset(options);
+  const bytes = await readWorkspaceAssetBounded(options, MAX_SVG_SOURCE_BYTES, 'SVG template source', '1 MiB');
   const actual = createHash('sha256').update(bytes).digest('hex');
-  if (actual.toLowerCase() !== revision[1].toLowerCase()) {
+  if (actual !== revision[1]) {
     throw new Error('SVG template source does not match its declared revision.');
   }
   try {

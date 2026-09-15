@@ -228,3 +228,30 @@ describe('unsaved SVG drafts', () => {
     expect(JSON.stringify(webviewState)).toContain('revision-original');
   });
 });
+
+// D01: complete original cell 65cc81cfbb1f5017; only digest syntax updated.
+describe('historical opaque SVG draft', () => {
+  it('preserves opaque svg_template through edit, draft persistence, and save', () => {
+    const svgTemplate = {
+      asset: { source: 'diagrams/proof.svg', base_identity: 'workspace:.SNL_Doc/assets', revision: 'sha256:' + 'a'.repeat(64), request_epoch: 3 },
+      generation: 2, producer_revision: 'renderer-v1', accessibility: { label: 'Diagram' },
+      formula_embed: { total_height_em: 2, baseline_ratio: 0.7 }
+    };
+    const existing = macro('diagram', 'original');
+    (existing.styles as Array<Record<string, unknown>>)[0].template = {
+      mode: 'block', body: '#0', block_template_name: 'svg_template', svg_template: svgTemplate
+    };
+    const first = render(<CreateMacroApp />);
+    send(context('edit', existing, 'revision-svg'));
+    fireEvent.change(screen.getByPlaceholderText('Short human-readable description'), { target: { value: 'changed' } });
+    first.unmount();
+    render(<CreateMacroApp />);
+    send(context('edit', existing, 'revision-new'));
+    expect(screen.getByRole('button', { name: 'Update Macro' })).toHaveProperty('disabled', false);
+    fireEvent.click(screen.getByRole('button', { name: 'Update Macro' }));
+    expect(lastMutation()).toMatchObject({
+      expectedRevision: 'revision-svg',
+      macro: { styles: [{ style_name: 'default', template: { svg_template: svgTemplate } }] }
+    });
+  });
+});

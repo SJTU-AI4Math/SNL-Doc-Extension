@@ -147,6 +147,43 @@ describe('harvestLibraryHtml', () => {
   });
 });
 
+describe('parameterized SVG export', () => {
+  it('preserves gradient definitions plus foreign KaTeX AND text without exporting an asset', () => {
+    const source = el(`<div class="snl-foreign-box-host snl-svg-template">
+      <svg class="snl-svg-template-artwork" role="img"><defs><linearGradient id="scoped-g"><stop offset="0" stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient></defs><path fill="url(#scoped-g)" d="M0 0L10 10"/></svg>
+      <div class="snl-foreign-box-overlay"><div class="snl-foreign-box" data-state="positioned" style="transform:translate(12px, 4px)"><span class="katex">x</span><span data-text-label>label</span></div></div>
+    </div>`);
+    const live = source.innerHTML;
+    const { html, assets } = harvestLibraryHtml(source, BASE);
+    const exported = el(html);
+    expect(exported.querySelector('svg.snl-svg-template-artwork')).not.toBeNull();
+    expect(exported.querySelector('linearGradient')?.id).toBe('scoped-g');
+    expect(exported.querySelector('linearGradient')?.querySelectorAll('stop')).toHaveLength(2);
+    expect(exported.querySelector('path')?.getAttribute('fill')).toBe('url(#scoped-g)');
+    const foreign = exported.querySelector<HTMLElement>('.snl-foreign-box[data-state="positioned"]')!;
+    expect(foreign.style.transform).toBe('translate(12px, 4px)');
+    expect(foreign.querySelector('.katex')?.textContent).toBe('x');
+    expect(foreign.querySelector('[data-text-label]')?.textContent).toBe('label');
+    expect(assets).toEqual([]);
+    expect(source.innerHTML).toBe(live);
+  });
+
+  it('waits across quiet, KaTeX loading, foreign staging and positioned SVG phases', async () => {
+    const root = el('<div class="katex-panel">initial formula</div>');
+    let resolved = false;
+    const waiting = waitForExportSurfaces(root, { timeoutMs: 1000 }).then(() => { resolved = true; });
+    root.innerHTML = '<div class="katex-panel" data-snl-render-state="loading">Loading KaTeX ...</div>';
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(resolved).toBe(false);
+    root.innerHTML = '<div class="snl-foreign-box" data-state="staging"></div>';
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(resolved).toBe(false);
+    root.innerHTML = '<div class="snl-foreign-box" data-state="positioned"><svg/></div>';
+    await waiting;
+    expect(root.querySelector('[data-state="positioned"] svg')).not.toBeNull();
+  });
+});
+
 describe('collapse structure survives the strip pass', () => {
   it('keeps the markers the exported runtime rebuilds collapse from', () => {
     const { html } = harvestLibraryHtml(

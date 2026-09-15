@@ -423,6 +423,15 @@ const baseExtensionRenderers: SnlRendererRegistry = {
 const parameterizedRendererCache = new Map<string, SnlBlockRenderer>();
 
 export const extensionRenderers: SnlRendererRegistry = new Proxy(baseExtensionRenderers, {
+  ownKeys(target): ArrayLike<string | symbol> {
+    return [...new Set([...Reflect.ownKeys(target), 'svg_template'])];
+  },
+  getOwnPropertyDescriptor(target, property): PropertyDescriptor | undefined {
+    if (property === 'svg_template') {
+      return { configurable: true, enumerable: true, get: getSvgTemplateRenderer };
+    }
+    return Reflect.getOwnPropertyDescriptor(target, property);
+  },
   get(target, property, receiver): unknown {
     if (property === 'svg_template') return getSvgTemplateRenderer();
     const direct = Reflect.get(target, property, receiver);

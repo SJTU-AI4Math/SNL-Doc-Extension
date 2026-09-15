@@ -88,10 +88,11 @@ export function buildPanelHtml(
       relativePath: path,
       asWebviewUri: (target) => webview.asWebviewUri(target).toString()
     }),
-    readSvg: (path: string, revision: string) => readWorkspaceSvgSource({
+    readSvg: (path: string, revision: string, baseIdentity?: string) => readWorkspaceSvgSource({
       workspaceRoot,
       relativePath: path,
-      expectedRevision: revision
+      expectedRevision: revision,
+      baseIdentity
     })
   } : undefined);
   ownerDisposables?.push(preferencesDisposable);

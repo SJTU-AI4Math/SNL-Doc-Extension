@@ -210,7 +210,9 @@ async function writeImmutable(
   onCreated: (identity: FileIdentity) => void
 ): Promise<FileIdentity | null> {
   await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
-  const handle = await fs.open(directoryPath, fsConstants.O_RDWR | O_TMPFILE, 0o600);
+  // O_TMPFILE must use the same held parent as linking and rollback: the
+  // canonical directory (or an ancestor) can be exchanged after requireIdentity.
+  const handle = await fs.open(`/proc/self/fd/${directoryHandle.fd}`, fsConstants.O_RDWR | O_TMPFILE, 0o600);
   let created: FileIdentity | undefined;
   let failed = false;
   let failure: unknown;

@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -303,10 +304,36 @@ it('routes the real SVG publication seam and leaves assets intact on invalid req
     const { CreateMacroPanel } = await import('./createMacroPanel');
     CreateMacroPanel.createOrShow(extUri, 'svg.json');
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g data-snl-slot="0"/></svg>';
-    const request = { type: 'svgMacro.writeAssets', requestId: 'panel-svg', slug: 'diagram', sourceSvg: svg, templateSvg: svg, accessibilityLabel: 'Diagram', operations: [] };
+    const templateSvg = svg.replace('0 0 10 10', '0 0 20 20');
+    const request = { type: 'svgMacro.writeAssets', requestId: 'panel-svg', slug: 'diagram', sourceSvg: svg, templateSvg, accessibilityLabel: 'Diagram', operations: [] };
     await handlers[0](request);
-    expect(posted.at(-1)).toMatchObject({ type: 'svgMacro.assetsWritten', requestId: 'panel-svg' });
-    const assets = join(root, '.SNL_Doc/assets/svg');
+    const digest = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex');
+    const sourcePath = `svg/diagram.source.${digest(svg)}.svg`;
+    const templatePath = `svg/diagram.template.${digest(templateSvg)}.svg`;
+    const assetRoot = join(root, '.SNL_Doc/assets');
+    const assets = join(assetRoot, 'svg');
+    const manifestFile = (await fs.readdir(assets)).filter(name => name.endsWith('.json'));
+    expect(manifestFile).toHaveLength(1);
+    const manifestBytes = await fs.readFile(join(assets, manifestFile[0]));
+    const manifestPath = `svg/diagram.manifest.${digest(manifestBytes)}.json`;
+    expect(`svg/${manifestFile[0]}`).toBe(manifestPath);
+    expect(manifestBytes.toString()).toBe(`${JSON.stringify({
+      version: 1, compiler: 'snl-doc-extension-svg-editor:v1', source: sourcePath,
+      source_revision: `sha256:${digest(svg)}`, output: templatePath,
+      output_revision: `sha256:${digest(templateSvg)}`, operations: []
+    }, null, 2)}\n`);
+    expect(await fs.readFile(join(assetRoot, sourcePath), 'utf8')).toBe(svg);
+    expect(await fs.readFile(join(assetRoot, templatePath), 'utf8')).toBe(templateSvg);
+    expect(posted.at(-1)).toEqual({
+      type: 'svgMacro.assetsWritten', requestId: 'panel-svg', sourcePath, manifestPath,
+      projection: {
+        asset: { source: templatePath, base_identity: 'workspace:.SNL_Doc/assets',
+          revision: `sha256:${digest(templateSvg)}`, request_epoch: 0 },
+        generation: 1, producer_revision: 'snl-doc-extension-svg-editor:v1',
+        accessibility: { label: 'Diagram' },
+        editor: { source: sourcePath, source_revision: `sha256:${digest(svg)}`, manifest: manifestPath }
+      }
+    });
     const files = await fs.readdir(assets);
     const before = await Promise.all(files.map(name => fs.readFile(join(assets, name), 'utf8')));
     await handlers[0]({ ...request, requestId: 'invalid', slug: '../escape' });

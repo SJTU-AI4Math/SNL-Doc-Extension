@@ -12,9 +12,9 @@
 //   3. Export runtime (esbuild bundle of SNL-Basics's hover + our wiring).
 //   4. Webview build (all vite entries).
 //
-// SNL-Basics is a plain registry dependency (@sjtu-ai4math/snl-basics) since
-// 2026-07-27 — npm install fetches its prebuilt dist-lib, so there is no
-// submodule to init and nothing to rebuild locally.
+// SNL-Basics is an npm-managed dependency, not a sibling checkout/submodule.
+// Follow the lockfile: a registry pin ships dist-lib, while a public Git pin
+// runs its own prepare/build:lib lifecycle during installation.
 //
 // Cross-platform: spawnSync with the platform npm binary, shell:true only on
 // Windows.

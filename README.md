@@ -155,10 +155,12 @@ for its color roles, contrast values, and consumer guidance.
 - [`react`](https://react.dev/) / `react-dom` (v19), [`katex`](https://katex.org/)
   for math rendering.
 - **[SNL-Basics](https://github.com/SJTU-AI4Math/SNL-Basics)** — the shared
-  SNL rendering library, consumed as the published npm package
-  [`@sjtu-ai4math/snl-basics`](https://www.npmjs.com/package/@sjtu-ai4math/snl-basics).
-  It ships a prebuilt `dist-lib/`, so `npm install` is all you need — there is
-  no submodule, no local library build, and no sibling checkout.
+  SNL rendering library. The lockfile currently pins the public Git commit
+  [`7290b702dd275c63d70134f9adda15807ebbe9c2`](https://github.com/SJTU-AI4Math/SNL-Basics/commit/7290b702dd275c63d70134f9adda15807ebbe9c2)
+  of `@sjtu-ai4math/snl-basics`, including the nested SVG rendering fixes.
+  `npm ci` runs that dependency's `prepare` / `build:lib` lifecycle to generate
+  its library artifacts; do not disable install scripts. No sibling checkout
+  or submodule is required, and this pin does not imply a new npm release.
 
 ## Development setup
 

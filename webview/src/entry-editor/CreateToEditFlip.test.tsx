@@ -284,6 +284,25 @@ describe('CreateEntryApp create → edit flip', () => {
       .toBe(false);
   });
 
+  it('opens the Package creator without dirtying the clean Entry or materializing an action value', async () => {
+    const view = render(<CreateEntryApp />);
+    const entry = { id: 'clean-package-action', package: 'Logic', title: 'Clean Entry', kind: 'definition', content: {} };
+    send(editContext(entry));
+    const packageField = await view.findByLabelText('Entry Package') as HTMLInputElement;
+    expect(packageField.value).toBe('Logic');
+    expect(packageField.readOnly).toBe(true);
+    const draftKey = `createEntry:edit:${entry.id}`;
+    expect(loadDraft(api, draftKey)).toBeUndefined();
+    openPackageCreator(view);
+    expect(view.getByLabelText('New Entry Package ID')).toBeTruthy();
+    expect(loadDraft(api, draftKey), 'Package action must not persist a dirty Entry').toBeUndefined();
+    expect(packageField.value).toBe('Logic');
+    send(editContext({ ...entry, title: 'Remote Refresh' }));
+    await waitFor(() => expect((view.container.querySelector('#snl-entry-title') as HTMLInputElement).value).toBe('Remote Refresh'));
+    expect(packageField.value).toBe('Logic');
+    expect(posted.some(message => message?.type === 'createPackage' || message?.type === 'update')).toBe(false);
+  });
+
   it('loads and persists explicit Package membership', async () => {
     const view = render(<CreateEntryApp />);
     send(editContext({

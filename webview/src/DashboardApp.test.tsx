@@ -502,6 +502,23 @@ describe('Dashboard Chinese localization', () => {
     document.documentElement.lang = '';
   });
 
+  it('localizes the package count and package-row action without inferring a catalog from entries', async () => {
+    render(<DashboardApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'overview', overview: {
+        hasSnlDoc: true, totalEntryCount: 0, entries: [],
+        entryPackages: [{ id: '_unpackaged', name: 'Unpackaged', description: '', entryCount: 0 }],
+        libraries: [], macroPackages: [], allMacros: [], metricMacroSources: {},
+        entryKinds: [], macroKinds: [], relationships: []
+      }
+    } })));
+    const toggle = (await screen.findByText('条目包')).closest('button')!;
+    expect(toggle.textContent).toContain('1 个条目包');
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole('button', { name: '打开条目包 _unpackaged' }));
+    expect(postMessage).toHaveBeenCalledWith({ type: 'openEntryPackage', packageId: '_unpackaged' });
+  });
+
   it('renders setup and initialized dashboard controls in Simplified Chinese', async () => {
     const { unmount } = render(<DashboardApp />);
     expect(screen.getByText('正在加载项目概览…')).toBeTruthy();

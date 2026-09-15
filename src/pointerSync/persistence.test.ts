@@ -3,7 +3,69 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { buildPointerIndex } from './index';
-import { isPointerIndex, readPointerIndex, writePointerIndex } from './persistence';
+import { isPointerIndex, pointerIndexInputs, readPointerIndex, writePointerIndex } from './persistence';
+import { cacheFingerprint, cachePath } from '../derivedCache';
+
+// Use real native storage and valid envelope metadata: malformed raw JSON alone
+// can be rejected before the Pointer payload validator is ever reached.
+async function storeEnvelope(value: Awaited<ReturnType<typeof buildPointerIndex>>) {
+  const target = cachePath(root, 'pointer-inverse');
+  expect(target).toBe(path.join(root, '.SNL_Doc', '.cache', 'pointer-inverse', 'result.json'));
+  const envelope = {
+    format: 'snl-derived-cache', schema: 1, generator: 'pointer-inverse',
+    version: '1', library: null,
+    inputHash: cacheFingerprint(pointerIndexInputs(value)),
+    valueHash: cacheFingerprint(value), value
+  };
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, JSON.stringify(envelope));
+}
+
+it('reads a valid current v3 payload from the current envelope path', async () => {
+  await fs.writeFile(path.join(root, 'x'), 'before\ntarget\nafter');
+  const current = await buildPointerIndex(root, [{ id: 'a', pointer: { file: 'x', mode: 'lines', line: 2 } }]);
+  expect(current.version).toBe(3);
+  expect(isPointerIndex(current)).toBe(true);
+  await storeEnvelope(current);
+  expect(await readPointerIndex(root)).toEqual(current);
+});
+
+it.each(['v2 expanded scope', 'invalid scope priority', 'mismatched scope priority'])(
+  'rejects %s inside an otherwise valid current cache envelope', async invalid => {
+    const text = 'before\ntarget\nafter';
+    await fs.writeFile(path.join(root, 'x'), text);
+    const value = await buildPointerIndex(root, [{ id: 'a', pointer: { file: 'x', mode: 'lines', line: 2 } }]);
+    const resolution = value.files.x.entries[0].resolution;
+    if (resolution.status !== 'ok') throw new Error('Expected resolved fixture');
+    if (invalid === 'v2 expanded scope') {
+      Object.assign(value, { version: 2 });
+      resolution.scope = {
+        startLine: 1, startColumn: 1, endLine: 3, endColumn: 6, coveredEndLine: 3,
+        startOffset: 0, endOffset: text.length, span: text.length, priority: 0, endInclusive: true
+      };
+    } else {
+      Object.assign(resolution.scope, { priority: invalid === 'invalid scope priority' ? null : 1 });
+    }
+    // Independent validator, reader and writer obligations. Rehash after mutation
+    // so the reader cannot pass this test just by rejecting broken outer metadata.
+    expect(isPointerIndex(value)).toBe(false);
+    await storeEnvelope(value);
+    expect(await readPointerIndex(root)).toBeUndefined();
+    await expect(writePointerIndex(root, value)).rejects.toThrow('Invalid Pointer index');
+  }
+);
+
+it('leaves legacy syncSNL bytes untouched and never reads that path', async () => {
+  const value = await buildPointerIndex(root, []);
+  const legacy = path.join(root, '.SNL_Doc', 'syncSNL.json');
+  const bytes = JSON.stringify(value) + '\n';
+  await fs.writeFile(legacy, bytes);
+  expect(await readPointerIndex(root)).toBeUndefined();
+  expect(await fs.readFile(legacy, 'utf8')).toBe(bytes);
+  await writePointerIndex(root, value);
+  expect(await readPointerIndex(root)).toEqual(value);
+  expect(await fs.readFile(legacy, 'utf8')).toBe(bytes);
+});
 
 it.each([
   '{', 'null', '{}', '{"version":999,"files":{},"unfiled":[]}',

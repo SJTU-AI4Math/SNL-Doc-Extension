@@ -1,11 +1,77 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+let workspacePath = '';
+function fileUri(filePath: string) {
+  return {
+    scheme: 'file', path: filePath, fsPath: filePath,
+    toString: () => `file://${filePath}`,
+    with: ({ path: nextPath }: { path: string }) => fileUri(nextPath)
+  };
+}
+// Describe-level roots retain a per-test identity without a fixed /ws backing.
+function workspaceRoot(): never {
+  return {
+    scheme: 'file',
+    get path() { return workspacePath; },
+    get fsPath() { return workspacePath; },
+    toString: () => `file://${workspacePath}`
+  } as never;
+}
+function fixturePath(relative: string): string {
+  if (!workspacePath) throw new Error('Fixture used outside a test');
+  return path.join(workspacePath, '.SNL_Doc', relative);
+}
+
+// Keep original fixture insertion order for exact rollback assertions, but read
+// values from disk: the adapter, native index and cache all observe these bytes.
+class DiskJsonFixture extends Map<string, unknown> {
+  override set(relative: string, value: unknown): this {
+    const target = fixturePath(relative);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, JSON.stringify(value));
+    return super.set(relative, value);
+  }
+  writeBytes(relative: string, bytes: Uint8Array): void {
+    fs.writeFileSync(fixturePath(relative), bytes);
+    super.set(relative, JSON.parse(new TextDecoder().decode(bytes)));
+  }
+  override get(relative: string): unknown {
+    try { return JSON.parse(fs.readFileSync(fixturePath(relative), 'utf8')); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    }
+  }
+  override has(relative: string): boolean { return fs.existsSync(fixturePath(relative)); }
+  override delete(relative: string): boolean {
+    fs.rmSync(fixturePath(relative), { force: true });
+    return super.delete(relative);
+  }
+  override clear(): void {
+    fs.rmSync(fixturePath(''), { recursive: true, force: true });
+    fs.mkdirSync(fixturePath(''), { recursive: true });
+    super.clear();
+  }
+  override *[Symbol.iterator](): MapIterator<[string, unknown]> {
+    for (const relative of this.keys()) yield [relative, this.get(relative)];
+  }
+}
+
+beforeEach(() => {
+  workspacePath = fs.mkdtempSync(path.join(tmpdir(), 'snl-package-cost-'));
+});
+afterEach(() => {
+  fs.rmSync(workspacePath, { recursive: true, force: true });
+  workspacePath = '';
+});
 import { entryEntityPath, makeEntryEnvelope, makeMacroEnvelope, makePackageManifest, macroEntityPath, packageManifestPath } from './entityStorage';
 
 const PACKAGE_COUNT = 24;
 const packageIds = Array.from({ length: PACKAGE_COUNT }, (_, index) => `pkg-${String(index).padStart(2, '0')}`);
-const jsonByPath = new Map<string, unknown>();
+const jsonByPath = new DiskJsonFixture();
 function seedCurrentTopology(): void {
   jsonByPath.clear();
   for (const id of packageIds) {
@@ -31,7 +97,6 @@ function seedCurrentTopology(): void {
     active_macro_packages: packageIds
   });
 }
-seedCurrentTopology();
 
 const state = vi.hoisted(() => ({
   receive: undefined as ((message: unknown) => Promise<void>) | undefined,
@@ -47,7 +112,7 @@ const state = vi.hoisted(() => ({
 }));
 
 function relativePath(uri: { path: string }): string {
-  return uri.path.replace(/^\/ws\/.SNL_Doc\/?/, '');
+  return path.relative(fixturePath(''), uri.path).split(path.sep).join('/');
 }
 
 vi.mock('vscode', () => ({
@@ -55,8 +120,7 @@ vi.mock('vscode', () => ({
   FileType: { File: 1, Directory: 2 },
   env: { language: 'en' },
   Uri: { joinPath: (base: { path: string }, ...parts: string[]) => {
-    const joined = [base.path, ...parts].join('/');
-    return { path: joined, fsPath: joined };
+    return fileUri(path.join(base.path, ...parts));
   } },
   ViewColumn: { Active: -1 },
   RelativePattern: class {},
@@ -82,19 +146,13 @@ vi.mock('vscode', () => ({
   workspace: {
     fs: {
       stat: async (uri: { path: string }) => {
-        const relative = relativePath(uri);
-        if (
-          uri.path === '/ws/.SNL_Doc' || relative === 'config.json' || jsonByPath.has(relative) ||
-          [...jsonByPath.keys()].some((path) => path.startsWith(`${relative}/`))
-        ) return {};
-        throw new Error(`ENOENT: ${relative}`);
+        return fs.promises.stat(uri.path);
       },
       readDirectory: async (uri: { path: string }) => {
         const directory = relativePath(uri);
         state.directoryReads.push(directory);
-        return [...jsonByPath.keys()]
-          .filter((path) => path.startsWith(`${directory}/`))
-          .map((path) => [path.slice(directory.length + 1), 1] as [string, number]);
+        return (await fs.promises.readdir(uri.path, { withFileTypes: true }))
+          .map(entry => [entry.name, entry.isDirectory() ? 2 : 1] as [string, number]);
       },
       readFile: async (uri: { path: string }) => {
         const relative = relativePath(uri);
@@ -102,9 +160,12 @@ vi.mock('vscode', () => ({
         state.entityReads.push(relative);
         state.entityInFlight += 1;
         state.maxEntityInFlight = Math.max(state.maxEntityInFlight, state.entityInFlight);
-        await new Promise((resolve) => setTimeout(resolve, relative.includes('pkg-00') ? 3 : 1));
-        state.entityInFlight -= 1;
-        return new TextEncoder().encode(JSON.stringify(jsonByPath.get(relative)));
+        try {
+          await new Promise((resolve) => setTimeout(resolve, relative.includes('pkg-00') ? 3 : 1));
+          return await fs.promises.readFile(uri.path);
+        } finally {
+          state.entityInFlight -= 1;
+        }
       },
       writeFile: async (uri: { path: string }, bytes: Uint8Array) => {
         const relative = relativePath(uri);
@@ -113,9 +174,9 @@ vi.mock('vscode', () => ({
           state.failOnceAt = null;
           throw new Error(`injected write failure: ${relative}`);
         }
-        jsonByPath.set(relative, JSON.parse(new TextDecoder().decode(bytes)));
+        jsonByPath.writeBytes(relative, bytes);
       },
-      createDirectory: async () => undefined,
+      createDirectory: async (uri: { path: string }) => { await fs.promises.mkdir(uri.path, { recursive: true }); },
       delete: async (uri: { path: string }) => {
         const relative = relativePath(uri);
         state.writes.push(`delete:${relative}`);
@@ -139,7 +200,7 @@ vi.mock('vscode', () => ({
 
 vi.mock('./panelUtil', () => ({
   buildPanelHtml: () => '<html></html>',
-  firstWorkspaceFolder: () => ({ path: '/ws' }),
+  firstWorkspaceFolder: () => workspaceRoot(),
   handlePanelNavMessage: async () => false,
   installSnlDocWatcher: () => undefined,
   webviewLocalResourceRoots: () => []
@@ -179,8 +240,23 @@ vi.mock('./snlDoc', async (importOriginal) => {
 
 const extensionUri = { path: '/ext' } as never;
 
+it('shares exact bytes between fixture, native filesystem and instrumented provider', async () => {
+  seedEntryTransactionTopology();
+  const vscode = await import('vscode');
+  const uri = vscode.Uri.joinPath(workspaceRoot(), '.SNL_Doc', 'config.json');
+  expect(uri.path).toBe(uri.fsPath);
+  const bytes = Buffer.from('{ "version": "0.1.0", "native": true }\n');
+  fs.writeFileSync(uri.fsPath, bytes);
+  expect(Buffer.from(await vscode.workspace.fs.readFile(uri))).toEqual(bytes);
+  expect(jsonByPath.get('config.json')).toEqual(JSON.parse(bytes.toString()));
+  const replacement = Buffer.from('{\n "provider": true\n}\n');
+  await vscode.workspace.fs.writeFile(uri, replacement);
+  expect(fs.readFileSync(uri.fsPath)).toEqual(replacement);
+  expect(jsonByPath.get('config.json')).toEqual({ provider: true });
+});
+
 describe('canonical Entry tags CRUD', () => {
-  const root = { path: '/ws', toString: () => 'file:///ws' } as never;
+  const root = workspaceRoot();
   const tags = ['', ' a,b ', '中文', '__proto__', 'constructor', 'a\\b', 'a', 'a'];
   it('round-trips exact tags, preserves omitted updates/moves and clears explicitly', async () => {
     seedEntryTransactionTopology();
@@ -221,10 +297,10 @@ describe('Pointer write-side synchronization', () => {
     seedEntryTransactionTopology();
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
     const { onPointerEntriesWritten } = await import('./pointerSyncHostState');
-    const root = { path: '/ws', toString: () => 'file:///ws' } as never;
+    const root = workspaceRoot();
     const pointers: unknown[] = [];
     const id = 'pointer.entry';
-    const handle = onPointerEntriesWritten('file:///ws', async () => {
+    const handle = onPointerEntriesWritten(`file://${workspacePath}`, async () => {
       const envelope = jsonByPath.get(entryEntityPath('logic', id)) as { entry?: { pointer?: unknown } } | undefined;
       pointers.push(envelope?.entry?.pointer ?? null);
     }, error => { throw error; });
@@ -243,7 +319,7 @@ describe('Pointer write-side synchronization', () => {
   it('retires legacy buffer values on create and save while preserving opaque Pointer fields', async () => {
     seedEntryTransactionTopology();
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
-    const root = { path: '/ws', toString: () => 'file:///ws' } as never;
+    const root = workspaceRoot();
     const pointer = { file: 'test.lean', mode: 'regex', pattern: '/--[\\s\\S]*?theorem', flags: 'm', occurrence: 2, priority: -0.5, beforeLines: -1, afterLines: 'legacy', opaque: { keep: true } };
     const value = { ...newEntry('retired.pointer', 'logic'), pointer };
     const created = await actual.addEntry(root, value);
@@ -259,7 +335,7 @@ describe('Pointer write-side synchronization', () => {
   it.each([{ priority: '0' }, { column: '2' }, { endColumn: 0 }])('allows unrelated edits after UI retirement cleanup of an unchanged malformed Pointer: %j', async (invalid) => {
     seedEntryTransactionTopology();
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
-    const root = { path: '/ws', toString: () => 'file:///ws' } as never;
+    const root = workspaceRoot();
     const id = 'legacy.malformed';
     const legacy = { file: 'Main.lean', mode: 'lines', line: 1, ...invalid, beforeLines: 15, afterLines: 15, opaque: { keep: true } };
     const entry = { ...newEntry(id, 'logic'), content: { snl: 'PreservedStatement', markdown: 'Preserved prose.' }, pointer: legacy };
@@ -287,7 +363,7 @@ describe('Pointer write-side synchronization', () => {
       ...[0, -1, 1.5, '3', Number.MAX_SAFE_INTEGER + 1, null].flatMap(column => [{ column }, { endColumn: column }])
     ]) {
       seedEntryTransactionTopology();
-      const result = await actual.addEntry({ path: '/ws', toString: () => 'file:///ws' } as never, {
+      const result = await actual.addEntry(workspaceRoot(), {
         ...newEntry('invalid.pointer', 'logic'), pointer: { file: 'x.lean', mode: 'lines', line: 1, ...fields }
       });
       expect(result.status).toBe('invalid');
@@ -392,7 +468,7 @@ describe('PackagePanel read cost', () => {
     }
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
 
-    const snapshot = await actual.readEntryPackagePanelSnapshot({ path: '/ws' } as never, 'logic');
+    const snapshot = await actual.readEntryPackagePanelSnapshot(workspaceRoot(), 'logic');
 
     expect(snapshot.selected).toMatchObject({
       status: 'ok', entries: selectedIds.map((id) => expect.objectContaining({ id, package: 'logic' }))
@@ -422,7 +498,7 @@ describe('PackagePanel read cost', () => {
     state.entityReads.length = 0;
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
 
-    const summaries = await actual.readEntryPackages({ path: '/ws' } as never);
+    const summaries = await actual.readEntryPackages(workspaceRoot());
 
     expect(summaries.find(({ id }) => id === 'pkg-00')).toEqual({
       id: 'pkg-00', name: 'Package Zero', description: 'Picker metadata', entryCount: 2
@@ -451,12 +527,12 @@ describe('PackagePanel read cost', () => {
       format: 'snl-package', version: 1, schema_version: 1,
       id: 'logic', name: 42, description: '', entry_ids: []
     });
-    // Ensure every current-topology directory exists in the in-memory provider.
+    // Explicitly seed every current-topology directory for this fixture.
     jsonByPath.set('entries/.gitkeep', null);
     jsonByPath.set('macros/.gitkeep', null);
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
 
-    const result = await actual.addEntry({ path: '/ws', toString: () => 'file:///ws' } as never, {
+    const result = await actual.addEntry(workspaceRoot(), {
       id: 'new.entry', package: 'logic', kind: 'definition', title: 'New',
       content: { snl: '' }, pointer: null
     });
@@ -480,7 +556,7 @@ describe('PackagePanel read cost', () => {
     state.failOnceAt = manifestPath;
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
 
-    const result = await actual.addEntry({ path: '/ws', toString: () => 'file:///ws' } as never, {
+    const result = await actual.addEntry(workspaceRoot(), {
       id: 'logic.new', package: 'logic', kind: 'definition', title: 'New',
       content: { snl: '' }, pointer: null
     });
@@ -504,7 +580,7 @@ describe('PackagePanel read cost', () => {
     state.failOnceAt = sourcePath;
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
 
-    const result = await actual.updateEntry({ path: '/ws', toString: () => 'file:///ws' } as never, id, {
+    const result = await actual.updateEntry(workspaceRoot(), id, {
       package: 'destination', kind: 'definition', title: 'Moved', content: { snl: '' }, pointer: null
     }, actual.entityRevision(oldEntry.entry));
 
@@ -528,7 +604,7 @@ describe('PackagePanel read cost', () => {
     jsonByPath.set(manifestPath, makePackageManifest('logic', 'Logic', '', []));
     jsonByPath.set(entityPath, hidden);
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
-    const root = { path: '/ws', toString: () => 'mem:/ws' } as never;
+    const root = workspaceRoot();
 
     await expect(actual.entryBelongsToPackage(root, 'logic', id)).resolves.toBe(false);
     const result = await actual.deleteEntry(root, id, 'logic');
@@ -550,7 +626,7 @@ describe('PackagePanel read cost', () => {
     state.failOnceAt = entityPath;
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
 
-    const result = await actual.deleteEntry({ path: '/ws', toString: () => 'file:///ws' } as never, id, 'logic');
+    const result = await actual.deleteEntry(workspaceRoot(), id, 'logic');
 
     expect(result).toMatchObject({ status: 'error' });
     expect(jsonByPath.get(manifestPath)).toEqual(makePackageManifest('logic', 'Logic', '', [id]));
@@ -559,7 +635,7 @@ describe('PackagePanel read cost', () => {
 
   it('restores exact create state for every publication fault and stale manifest CAS', async () => {
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
-    const root = { path: '/ws', toString: () => 'file:///ws' } as never;
+    const root = workspaceRoot();
     const manifestPath = packageManifestPath('logic');
     const entityPath = entryEntityPath('logic', 'logic.new');
     for (const failedPath of [entityPath, manifestPath]) {
@@ -592,7 +668,7 @@ describe('PackagePanel read cost', () => {
 
   it('restores exact move state for every publication fault and later manifest/entity CAS', async () => {
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
-    const root = { path: '/ws', toString: () => 'file:///ws' } as never;
+    const root = workspaceRoot();
     const id = 'logic.move';
     const sourceManifestPath = packageManifestPath('source');
     const destinationManifestPath = packageManifestPath('destination');
@@ -651,7 +727,7 @@ describe('PackagePanel read cost', () => {
 
   it('restores exact delete state for every publication fault and stale entity CAS', async () => {
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
-    const root = { path: '/ws', toString: () => 'file:///ws' } as never;
+    const root = workspaceRoot();
     const id = 'logic.delete';
     const manifestPath = packageManifestPath('logic');
     const entityPath = entryEntityPath('logic', id);
@@ -693,7 +769,7 @@ describe('PackagePanel read cost', () => {
     jsonByPath.set(manifestPath, makePackageManifest('logic', 'Logic', '', ['missing.entry']));
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
 
-    const create = await actual.addEntry({ path: '/ws', toString: () => 'file:///ws' } as never, {
+    const create = await actual.addEntry(workspaceRoot(), {
       id: 'logic.new', package: 'logic', kind: 'definition', title: 'New', content: { snl: '' }, pointer: null
     });
     expect(create).toMatchObject({ status: 'error' });
@@ -703,7 +779,7 @@ describe('PackagePanel read cost', () => {
     const entityPath = entryEntityPath('logic', 'logic.old');
     const entry = makeEntryEnvelope('logic', { id: 'logic.old', package: 'logic', kind: 'definition', title: 'Old', content: { snl: '' }, pointer: null });
     jsonByPath.set(entityPath, entry);
-    const update = await actual.updateEntry({ path: '/ws', toString: () => 'file:///ws' } as never, 'logic.old', {
+    const update = await actual.updateEntry(workspaceRoot(), 'logic.old', {
       package: 'logic', kind: 'definition', title: 'Changed', content: { snl: '' }, pointer: null
     }, 'stale-revision');
     expect(update).toMatchObject({ status: 'error' });
@@ -729,7 +805,7 @@ describe('PackagePanel read cost', () => {
 
   it('lists and reads every Package/Macro entity at most once with bounded fan-out', async () => {
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
-    const snapshot = await actual.readPackagePanelSnapshot({ path: '/ws' } as never, 'pkg-00');
+    const snapshot = await actual.readPackagePanelSnapshot(workspaceRoot(), 'pkg-00');
 
     expect(snapshot.selected.status).toBe('ok');
     expect(Object.keys(snapshot.workspaceMacros)).toHaveLength(PACKAGE_COUNT);
@@ -744,7 +820,7 @@ describe('PackagePanel read cost', () => {
   it('gives readAllMacros the same single-snapshot P-package/M-macro read cost', async () => {
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
 
-    const macros = await actual.readAllMacros({ path: '/ws' } as never);
+    const macros = await actual.readAllMacros(workspaceRoot());
 
     expect(Object.keys(macros)).toHaveLength(PACKAGE_COUNT);
     expect(state.directoryReads.sort()).toEqual(['macros', 'packages']);
@@ -776,7 +852,7 @@ describe('PackagePanel read cost', () => {
     }
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
 
-    const snapshot = await actual.readPackageMacroSnapshot({ path: '/ws' } as never);
+    const snapshot = await actual.readPackageMacroSnapshot(workspaceRoot());
 
     expect(snapshot.activePackages.map(({ file }) => file)).toEqual(['core-extra', 'core']);
     expect(snapshot.macroOrigins['Shared.name']).toBe('core');
@@ -810,7 +886,7 @@ describe('PackagePanel read cost', () => {
     }
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
 
-    const snapshot = await actual.readPackagePanelSnapshot({ path: '/ws' } as never, legacyIds[0]);
+    const snapshot = await actual.readPackagePanelSnapshot(workspaceRoot(), legacyIds[0]);
 
     expect(snapshot.selected.status).toBe('ok');
     expect(Object.keys(snapshot.workspaceMacros)).toHaveLength(PACKAGE_COUNT);
@@ -823,7 +899,7 @@ describe('PackagePanel read cost', () => {
   it('keeps a missing selected package as noFile while deriving the effective active set', async () => {
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
 
-    const snapshot = await actual.readPackagePanelSnapshot({ path: '/ws' } as never, 'missing');
+    const snapshot = await actual.readPackagePanelSnapshot(workspaceRoot(), 'missing');
 
     expect(snapshot.selected).toEqual({ status: 'noFile' });
     expect(snapshot.active).toEqual(packageIds);
@@ -835,7 +911,7 @@ describe('PackagePanel read cost', () => {
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
 
     await expect(
-      actual.readPackagePanelSnapshot({ path: '/ws' } as never, packageIds[0])
+      actual.readPackagePanelSnapshot(workspaceRoot(), packageIds[0])
     ).rejects.toThrow('is not a valid SNL Macro envelope');
   });
 
@@ -848,7 +924,7 @@ describe('PackagePanel read cost', () => {
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
 
     await expect(
-      actual.readPackagePanelSnapshot({ path: '/ws' } as never, packageIds[0])
+      actual.readPackagePanelSnapshot(workspaceRoot(), packageIds[0])
     ).rejects.toThrow('Active Macro Package "missing-active" has no Package manifest.');
   });
 
@@ -870,7 +946,7 @@ describe('PackagePanel read cost', () => {
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
 
     await expect(
-      actual.readPackagePanelSnapshot({ path: '/ws' } as never, packageIds[0])
+      actual.readPackagePanelSnapshot(workspaceRoot(), packageIds[0])
     ).rejects.toThrow('Macro entity references missing Package orphan.');
   });
 });

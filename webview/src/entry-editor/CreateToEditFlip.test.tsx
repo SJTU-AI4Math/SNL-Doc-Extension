@@ -1166,3 +1166,97 @@ describe('CreateEntryApp create → edit flip', () => {
     });
   });
 });
+
+describe('Entry context errors are not save terminals', () => {
+  it.each(['', '   '])('keeps empty diagnostic %j visible and fail-closed', async message => {
+    const view = render(<CreateEntryApp />);
+    act(() => send({ ...(editContext({ id: 'empty-diagnostic', kind: 'definition', title: 'Before', content: {} }) as Record<string, unknown>), targetGeneration: 3 }));
+    fireEvent.input(view.getByLabelText('Title'), { target: { value: 'Unsaved' } });
+    act(() => send({ type: 'contextError', targetGeneration: 3, message }));
+    expect(view.getByRole('alert').textContent?.trim()).toBe('Unable to load the Entry editor context. Refresh to retry.');
+    fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
+    expect(posted.filter(value => value?.type === 'update')).toEqual([]);
+  });
+
+  it('does not let an older context clear a newer read failure before its real target arrives', async () => {
+    const view = render(<CreateEntryApp />);
+    const contextAt = (id: string, title: string, targetGeneration: number) => ({
+      ...(editContext({ id, kind: 'definition', title, content: {} }) as Record<string, unknown>), targetGeneration
+    });
+    act(() => send(contextAt('old-target', 'Old', 3)));
+    act(() => send({ type: 'contextError', targetGeneration: 4, message: 'NEW-TARGET-FAILED' }));
+    act(() => {
+      send(contextAt('old-target', 'Old replacement', 3));
+      send({ type: 'contextError', targetGeneration: 3, message: 'OLD-ERROR' });
+    });
+    expect(view.getByRole('alert').textContent).toBe('NEW-TARGET-FAILED');
+    expect((view.getByLabelText('Title') as HTMLInputElement).value).toBe('Old');
+    expect((view.getByRole('button', { name: 'Update Entry' }) as HTMLButtonElement).disabled).toBe(true);
+    act(() => send(contextAt('new-target', 'New', 4)));
+    expect(view.queryByRole('alert')).toBeNull();
+    fireEvent.input(view.getByLabelText('Title'), { target: { value: 'New edited' } });
+    fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
+    expect(posted.findLast(value => value?.type === 'update')?.entry).toMatchObject({ id: 'new-target', title: 'New edited' });
+  });
+  it.each(['before-error', 'after-error'])('does not let a future read error anchor a save terminal (%s)', async order => {
+    const view = render(<CreateEntryApp />);
+    act(() => send({ ...(createContext() as Record<string, unknown>), targetGeneration: 0 }));
+    fireEvent.input(view.getByLabelText('Title'), { target: { value: 'Buffered context error' } });
+    fireEvent.input(view.container.querySelector('#snl-entry-id')!, { target: { value: 'future-error' } });
+    fireEvent.click(view.getByRole('button', { name: 'Create Entry' }));
+    const request = posted.findLast(message => message?.type === 'create');
+    expect(request?.saveRequestId).toEqual(expect.any(String));
+    const terminal = { type: 'created', id: 'future-error', targetGeneration: 1, saveRequestId: request.saveRequestId };
+    act(() => {
+      if (order === 'before-error') send(terminal);
+      send({ type: 'contextError', targetGeneration: 1, message: 'FUTURE-READ-ERROR' });
+      if (order === 'after-error') send(terminal);
+    });
+    await waitFor(() => expect(view.getByRole('alert').textContent).toBe('FUTURE-READ-ERROR'));
+    expect(view.queryByRole('button', { name: 'Update Entry' })).toBeNull();
+    expect((view.getByRole('button', { name: /Creating|Create Entry/ }) as HTMLButtonElement).disabled).toBe(true);
+    act(() => send({ type: 'createCommitted', id: 'future-error', targetGeneration: 1, saveRequestId: request.saveRequestId }));
+    // The receipt itself must flip identity before a later context can mask it.
+    await waitFor(() => expect(view.getByRole('button', { name: /Updating|Update Entry/ })).toBeTruthy());
+    act(() => send({ ...(editContext({ id: 'future-error', kind: 'definition', title: 'Buffered context error', content: {} }) as Record<string, unknown>), targetGeneration: 1 }));
+    await waitFor(() => expect((view.getByRole('button', { name: 'Update Entry' }) as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it('shows initial and warm read errors, rejects retired errors, and recovers without erasing a draft', async () => {
+    const view = render(<CreateEntryApp />);
+    act(() => send({ type: 'contextError', targetGeneration: 0, message: 'HC-INITIAL' }));
+    await waitFor(() => expect(view.getByRole('alert').textContent).toBe('HC-INITIAL'));
+    const entry = { id: 'hc-context', package: '_unpackaged', kind: 'definition', title: 'Original', content: {} };
+    const context = { ...(editContext(entry) as Record<string, unknown>), targetGeneration: 0, entryRevision: 'r0' };
+    act(() => send(context));
+    await waitFor(() => expect(view.queryByText('HC-INITIAL')).toBeNull());
+    fireEvent.input(view.getByLabelText('Title'), { target: { value: 'Unsaved' } });
+    act(() => send({ type: 'contextError', targetGeneration: 0, message: 'HC-WARM' }));
+    await waitFor(() => expect(view.getByRole('alert').textContent).toBe('HC-WARM'));
+    expect((view.getByRole('button', { name: 'Update Entry' }) as HTMLButtonElement).disabled).toBe(true);
+    act(() => send(context));
+    expect((view.getByLabelText('Title') as HTMLInputElement).value).toBe('Unsaved');
+    act(() => send({ ...context, targetGeneration: 1 }));
+    act(() => send({ type: 'contextError', targetGeneration: 0, message: 'HC-RETIRED' }));
+    expect(view.queryByText('HC-RETIRED')).toBeNull();
+  });
+
+  it('does not consume an in-flight save receipt or release its busy latch on a watcher read error', async () => {
+    const view = render(<CreateEntryApp />);
+    const entry = { id: 'hc-saving', package: '_unpackaged', kind: 'definition', title: 'Original', content: {} };
+    const context = { ...(editContext(entry) as Record<string, unknown>), targetGeneration: 7, entryRevision: 'r0' };
+    act(() => send(context));
+    fireEvent.input(view.getByLabelText('Title'), { target: { value: 'Submitted' } });
+    fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
+    const request = posted.findLast((message) => message?.type === 'update');
+    expect(request?.saveRequestId).toEqual(expect.any(String));
+    act(() => send({ type: 'contextError', targetGeneration: 7, message: 'HC-DURING-SAVE' }));
+    await waitFor(() => expect(view.getByRole('alert').textContent).toBe('HC-DURING-SAVE'));
+    act(() => send(context));
+    const button = view.getByRole('button', { name: /Updating|Update Entry/ }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    act(() => send({ type: 'error', targetGeneration: 7, saveRequestId: request.saveRequestId, message: 'HC-SAVE-FAILED' }));
+    await waitFor(() => expect(view.getByText(/HC-SAVE-FAILED/)).toBeTruthy());
+    expect((view.getByRole('button', { name: 'Update Entry' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});

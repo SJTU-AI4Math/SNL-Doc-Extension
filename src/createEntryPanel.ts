@@ -395,7 +395,7 @@ export class CreateEntryPanel {
     } catch (error) {
       if (generation !== this.contextGeneration) return;
       void this.panel.webview.postMessage({
-        type: 'error',
+        type: 'contextError',
         targetGeneration: this.targetGeneration,
         message: hostText()('loadFailed', { error: error instanceof Error ? error.message : String(error) })
       });
@@ -675,6 +675,9 @@ export class CreateEntryPanel {
           await this.pushContext();
           return;
         }
+        // A successful inline create selects the Package for this create target.
+        // Keep subsequent Host-authoritative Entry saves aligned with the UI.
+        if (this.mode === 'create') this.selectedPackage = packageId;
         await this.panel.webview.postMessage({
           type: 'packageCreated', packageId, requestId,
           targetGeneration: requestTargetGeneration

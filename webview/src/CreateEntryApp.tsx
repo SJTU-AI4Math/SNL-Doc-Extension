@@ -162,6 +162,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   regexRequired: 'Regex pattern cannot be empty.',
   invalidRegex: 'Invalid regular expression: {message}',
   positiveOccurrence: 'Occurrence must be a positive integer.',
+  contextLoadFailed: 'Unable to load the Entry editor context. Refresh to retry.',
   cannotSaveNoKinds: 'Cannot save yet — no Entry kinds are defined.',
   cannotSaveTitle: 'Cannot save yet — the title is empty.',
   cannotSaveId: 'Cannot save yet — the id is empty.',
@@ -364,6 +365,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   regexRequired: '正则表达式不能为空。',
   invalidRegex: '无效的正则表达式：{message}',
   positiveOccurrence: '匹配序号必须是正整数。',
+  contextLoadFailed: '无法载入条目编辑器上下文，请刷新重试。',
   cannotSaveNoKinds: '尚无法保存——未定义任何条目种类。',
   cannotSaveTitle: '尚无法保存——标题为空。',
   cannotSaveId: '尚无法保存——ID 为空。',
@@ -925,6 +927,7 @@ export function CreateEntryApp(): React.ReactElement {
   // (`requireUnique`). In edit mode we still use it — the widget is
   // suppressed but the pool would enable future reference features
   // without another host roundtrip. Cat 2026-07-09.
+  const [contextLoadError, setContextLoadError] = useState<string | null>(null);
   const [existingIds, setExistingIds] = useState<EntryOption[]>([]);
   const [entryPackages, setEntryPackages] = useState<string[]>(['_unpackaged']);
   const [selectedPackage, setSelectedPackage] = useState<string>('_unpackaged');
@@ -1027,6 +1030,7 @@ export function CreateEntryApp(): React.ReactElement {
   const committedUpdateRequestIdRef = useRef<string | null>(null);
   const committedUpdateRevisionRef = useRef<{ id: string; revision: string } | null>(null);
   const targetGenerationRef = useRef<number | null>(null);
+  const contextErrorGenerationRef = useRef<number | null>(null);
   const contextEstablishedGenerationRef = useRef<number | null>(null);
   const pendingTargetMessagesRef = useRef<Map<number, unknown[]>>(new Map());
   const entryRevisionRef = useRef<string | undefined>(undefined);
@@ -1086,6 +1090,7 @@ export function CreateEntryApp(): React.ReactElement {
         | { type: 'noSnlDoc'; message: string }
         | { type: 'noWorkspace'; message: string }
         | { type: 'error'; message: string }
+        | { type: 'contextError'; message: string }
         | undefined;
       if (!msg || typeof msg.type !== 'string') {
         return;
@@ -1094,6 +1099,22 @@ export function CreateEntryApp(): React.ReactElement {
         .targetGeneration;
       const hasTargetGeneration =
         typeof rawTargetGeneration === 'number' && Number.isSafeInteger(rawTargetGeneration);
+      // A read diagnostic is not an identity/commit anchor. Advancing the save
+      // protocol here can consume a queued terminal before createCommitted.
+      if (msg.type === 'contextError') {
+        if (!hasTargetGeneration && targetGenerationRef.current !== null) return;
+        if (hasTargetGeneration && (
+          (targetGenerationRef.current !== null && rawTargetGeneration < targetGenerationRef.current) ||
+          (contextErrorGenerationRef.current !== null && rawTargetGeneration < contextErrorGenerationRef.current)
+        )) return;
+        contextErrorGenerationRef.current = hasTargetGeneration ? rawTargetGeneration : null;
+        setContextLoadError(typeof msg.message === 'string' && msg.message.trim()
+          ? msg.message : t('contextLoadFailed'));
+        return;
+      }
+      if (hasTargetGeneration && contextErrorGenerationRef.current !== null &&
+          (msg.type === 'context' || msg.type === 'retarget') &&
+          rawTargetGeneration < contextErrorGenerationRef.current) return;
       let flushGeneration: number | null = null;
       if (!hasTargetGeneration) {
         // Legacy fixtures remain usable until the first correlated anchor. Once
@@ -1157,6 +1178,8 @@ export function CreateEntryApp(): React.ReactElement {
           setPackageCreateError('');
           break;
         case 'retarget': {
+          contextErrorGenerationRef.current = null;
+          setContextLoadError(null);
           setTitleEditScopeResetKey((previous) => previous + 1);
           // One panel serves every entry now (cat 2026-07-25). Clear the
           // form before the new entry's context lands so the previous
@@ -1201,6 +1224,8 @@ export function CreateEntryApp(): React.ReactElement {
           break;
         }
         case 'context':
+          contextErrorGenerationRef.current = null;
+          setContextLoadError(null);
           // The payload has arrived and is about to be applied to state.
           traceMark('context-received');
           setRelationships(
@@ -1653,6 +1678,7 @@ export function CreateEntryApp(): React.ReactElement {
       ? null
       : pointerDraftError(pointerDraft, t);
   const canCreate =
+    contextLoadError === null &&
     targetState !== 'notFound' &&
     !packageCreating &&
     kinds.length > 0 &&
@@ -1881,6 +1907,7 @@ export function CreateEntryApp(): React.ReactElement {
 
   /** The most specific reason the save button is currently disabled. */
   function saveBlockingReason(): string {
+    if (contextLoadError !== null) return contextLoadError;
     if (kinds.length === 0) return t('cannotSaveNoKinds');
     if (!validTitle) return t('cannotSaveTitle');
     if (!trimmedId) return t('cannotSaveId');
@@ -1933,6 +1960,10 @@ export function CreateEntryApp(): React.ReactElement {
     setSelectedKind(kinds.length > 0 ? kinds[0].id : '');
   }
 
+  const contextErrorNotice = contextLoadError === null ? null : (
+    <p role="alert" style={{ color: 'var(--vscode-errorForeground)' }}>{contextLoadError}</p>
+  );
+
   const noKinds = kindsLoaded && kinds.length === 0;
 
   if (mode === 'edit' && targetState === 'notFound') {
@@ -1942,6 +1973,7 @@ export function CreateEntryApp(): React.ReactElement {
         title={t('editEntry')}
         back={{ label: t('dashboard'), title: t('backDashboard'), message: { type: 'nav.openDashboard' } }}
       />
+      {contextErrorNotice}
       <MissingEditorTarget target="entry" id={id} />
     </main>;
   }
@@ -1973,6 +2005,7 @@ export function CreateEntryApp(): React.ReactElement {
         }
       />
 
+      {contextErrorNotice}
       <EntryTitleLocalizedEditor
         value={title}
         onChange={(next) => {

@@ -542,3 +542,51 @@ describe('CreateEntryPanel create -> edit flip', () => {
     });
   });
 });
+
+describe('Host controller remainder regression', () => {
+  beforeEach(async () => {
+    posted.length = 0; events.length = 0; stored.length = 0;
+    packageFiles.splice(0, packageFiles.length, 'core.json');
+    delayAddEntry = false; delayUpdateEntry = false; updateEntryFailure = undefined;
+    releaseAddEntry = undefined; releaseUpdateEntry = undefined;
+    const snlDoc = await import('./snlDoc');
+    vi.mocked(snlDoc.createMacroPackage).mockReset().mockImplementation(async (_root, file) => {
+      packageFiles.push(`${file}.json`);
+      return { status: 'ok', file: `${file}.json` };
+    });
+    vi.mocked(snlDoc.addEntry).mockReset().mockImplementation(async (_root, entry) => {
+      stored.push({ ...entry }); return { status: 'ok', id: entry.id, revision: snlDoc.entityRevision(entry) };
+    });
+  });
+  it('publishes a context error without a save receipt and recovers on ready', async () => {
+    const snlDoc = await import('./snlDoc');
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    (CreateEntryPanel as any).instance?.dispose();
+    CreateEntryPanel.createOrShow(extUri);
+    const read = vi.spyOn(snlDoc, 'readEntries').mockRejectedValueOnce(new Error('HC-CONTEXT-READ'));
+    try {
+      await messageHandler!({ type: 'ready' });
+      const error = posted.find((message) => message?.type === 'contextError');
+      expect(error).toMatchObject({ targetGeneration: expect.any(Number), message: expect.stringContaining('HC-CONTEXT-READ') });
+      expect(error).not.toHaveProperty('saveRequestId');
+      await messageHandler!({ type: 'ready' });
+      expect(contexts().at(-1)).toMatchObject({ targetGeneration: error.targetGeneration, mode: 'create' });
+    } finally { read.mockRestore(); }
+  });
+
+  it('uses inline-created Package on the next real Host save, not the old selection or crafted payload', async () => {
+    const snlDoc = await import('./snlDoc');
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    (CreateEntryPanel as any).instance?.dispose();
+    CreateEntryPanel.createOrShow(extUri, undefined, 'core');
+    await messageHandler!({ type: 'ready' });
+    await messageHandler!({ type: 'createPackage', packageId: 'Algebra', requestId: 'hc-pkg' });
+    expect(contexts().at(-1)).toMatchObject({ selectedPackage: 'Algebra' });
+    vi.mocked(snlDoc.addEntry).mockClear();
+    await messageHandler!({ type: 'create', saveRequestId: 'hc-save', entry: {
+      id: 'hc-inline-package', package: 'tampered', kind: 'definition', title: 'Inline', content: {}
+    } });
+    expect(snlDoc.addEntry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: 'hc-inline-package', package: 'Algebra' }));
+    expect(contexts().at(-1).existing.package).toBe('Algebra');
+  });
+});

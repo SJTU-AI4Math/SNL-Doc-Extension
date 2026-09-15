@@ -1,6 +1,13 @@
 import { useEffect, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import type { ThemedKindColoring } from '../../../src/kindColoring';
 import { get_kind_color_scheme, use_preferences_revision } from '../runtime/preferencesRuntime';
+import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
+
+const KIND_PREVIEW_MESSAGES = defineUiMessages('kindPreview', {
+  colorTitle: 'stroke {stroke} / background {background}'
+}, {
+  colorTitle: '描边 {stroke} / 背景 {background}'
+});
 export interface KindPreviewProps {
   coloring: ThemedKindColoring;
   name?: ReactNode;
@@ -32,6 +39,7 @@ export function KindPreview({
   allowOrdinaryClickThrough = false
 }: KindPreviewProps) {
   use_preferences_revision();
+  const t = useUiMessages(KIND_PREVIEW_MESSAGES);
   const [hovered, setHovered] = useState(false);
   const [ctrlDown, setCtrlDown] = useState(false);
   const scheme = get_kind_color_scheme();
@@ -78,7 +86,7 @@ export function KindPreview({
       data-kind-preview="true"
       data-kind-id={kindId}
       className={className}
-      title={title}
+      title={title ?? t('colorTitle', { stroke: colors.stroke, background: colors.background })}
       onMouseEnter={(event) => {
         setHovered(true);
         setCtrlDown(event.ctrlKey);

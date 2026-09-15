@@ -4984,7 +4984,7 @@ export async function updateMacroKind(
 }
 
 export type UpdateLibraryResult = UpdateResult<
-  { status: 'updated'; slug: string; title: string },
+  { status: 'updated'; slug: string; title: string; revision: string },
   { status: 'conflict'; id: string }
 >;
 
@@ -5045,7 +5045,7 @@ export async function updateLibrary(
     jsonBytes(next),
     expected
   );
-  return { status: 'updated', slug: targetSlug, title };
+  return { status: 'updated', slug: targetSlug, title, revision: entityRevision(next) };
 }
 
 export interface LibraryDraftUpdateInput {
@@ -6208,6 +6208,13 @@ async function readLibraryEntry(
  * Read `libraries/<slug>/meta.json` and return the normalized shape. Missing
  * file → `{status: 'noFile'}`. Malformed / unreadable → `{status: 'error'}`.
  */
+export async function readLibraryMetadataSnapshot(workspaceRoot: vscode.Uri, slug: string) {
+  if (!slug || slugify(slug) !== slug) throw new Error('Invalid Library identity.');
+  await assertLibraryWritableOnDisk(workspaceRoot, WriterValidationScope.LibraryMetadata);
+  await assertRealDirectory(libraryDirUri(workspaceRoot, slug), `libraries/${slug}`);
+  return readLibraryMeta(workspaceRoot, slug);
+}
+
 export async function readLibraryMeta(
   workspaceRoot: vscode.Uri,
   slug: string

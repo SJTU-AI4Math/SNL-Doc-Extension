@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import { EntryIdentityIndex } from './entryIdentityIndex';
 import { createLibraryPointReadSession } from './libraryPointRead';
+import { readLibraryRenderClosure } from './libraryDependencyClosure';
 import { fixture, entry, macro } from './libraryPointRead.testSupport';
 import { entryEntityPath, macroEntityPath, packageManifestPath, makeEntryEnvelope, makeMacroEnvelope } from './entityStorage';
 import { strictPointReadStorage, type PointReadReceipt } from './libraryPointReadStorage';
@@ -75,7 +76,7 @@ it('new higher priority candidate and winner deletion fall back deterministicall
 
 it('does not increase body I/O when unrelated Entry/Macro bodies grow, including corruption', async () => {
   const counts: unknown[] = [];
-  for (const unrelated of [0, 24]) {
+  for (const unrelated of [0, 24, 100]) {
     const f = await fixture();
     const ids = Array.from({ length: unrelated }, (_, i) => `Unrelated${i}`);
     await f.pkg('alpha', ['A', ...ids]); await f.ent('A'); await f.mac('M');
@@ -130,4 +131,59 @@ it('point reads unique inactive-owner seeds and active-name candidates only', as
   expect(m.candidates.map((c: { packageId: string }) => c.packageId)).toEqual(['alpha', 'zeta']);
   expect(f.calls.filter(c => c.path.startsWith('entries/'))).toHaveLength(1);
   expect(f.calls.filter(c => c.path.startsWith('macros/'))).toHaveLength(2);
+});
+
+// Preserve the original config-only negative admission order under Package2.
+it('preserves B,A,B,missing order, FILE winners and seeded cycles with 100 unrelated bodies', async () => {
+  const f = await fixture(['core', 'core-extra']);
+  const unrelated = Array.from({ length: 100 }, (_, i) => `Unrelated${i}`);
+  await f.pkg('inactive', ['A', ...unrelated]); await f.pkg('_unpackaged', ['B', 'C']);
+  await f.pkg('core'); await f.pkg('core-extra');
+  await f.ent('A', 'x@B', 'inactive'); await f.ent('B', 'y@C', '_unpackaged'); await f.ent('C', 'z@A', '_unpackaged');
+  await f.mac('Eq', ['A'], 'core'); await f.mac('Eq', ['B'], 'core-extra');
+  for (const id of unrelated) {
+    await f.put(entryEntityPath('inactive', id), { corrupt: true });
+    await f.put(macroEntityPath('core', id), { corrupt: true });
+  }
+  const s = await createLibraryPointReadSession(new EntryIdentityIndex(f.root, f.provider, { allowEnoent: true }));
+  expect(s.identity.receipts.filter(r => r.op === 'readDirectory').map(r => r.path)).toEqual(['packages']);
+  expect(s.identity.receipts.filter(r => r.op === 'readFile')).toHaveLength(5);
+  const requested = [];
+  for (const id of ['B', 'A', 'B', 'missing']) requested.push(await s.readEntry(id));
+  expect(requested.map(r => r.record?.entry.id ?? null)).toEqual(['B', 'A', 'B', null]);
+  expect([...new Map(requested.filter(r => r.record).map(r => [r.id, r.record!.entry])).keys()]).toEqual(['B', 'A']);
+  expect(requested[2]).toBe(requested[0]);
+  expect(requested[3]).toEqual({ id: 'missing', packageId: null, path: null, record: null, missing: 'unindexed' });
+  expect(f.calls.filter(c => c.path.startsWith('entries/')).map(c => c.path)).toEqual([
+    entryEntityPath('_unpackaged', 'B'), entryEntityPath('inactive', 'A')
+  ]);
+  const offset = f.calls.length;
+  const closure = await readLibraryRenderClosure(['A'], s);
+  expect([...closure.entries.keys()]).toEqual(['A', 'B', 'C']);
+  expect([...closure.requestedEntryIds].sort()).toEqual(['A', 'B', 'C']);
+  expect([...closure.requestedMacroNames].sort()).toEqual(['x', 'y', 'z']);
+  expect(f.calls.slice(offset).filter(c => c.path.startsWith('entries/')).map(c => c.path)).toEqual([entryEntityPath('_unpackaged', 'C')]);
+  const macros = await Promise.all(['Eq', 'missing', 'Eq'].map(name => s.readMacro(name)));
+  expect(macros[0].candidates.map(c => c.packageId)).toEqual(['core-extra', 'core']);
+  expect(macros[0].record?.macro).toMatchObject({ source: { entries: ['A'] } });
+  expect(macros[0].record?.envelope.package).toBe('core');
+  expect(macros[2]).toBe(macros[0]);
+  expect(macros[1].record).toBeNull();
+  expect(macros[1].candidates.map(c => c.record)).toEqual([null, null]);
+  expect(f.calls.filter(c => c.op === 'readDirectory')).toEqual([{ op: 'readDirectory', path: 'packages' }]);
+  expect(f.calls.filter(c => c.path.startsWith('entries/'))).toHaveLength(3);
+  for (const name of ['Eq', 'missing', 'x', 'y', 'z']) {
+    for (const owner of ['core-extra', 'core']) {
+      expect(f.calls.filter(c => c.path === macroEntityPath(owner, name))).toHaveLength(1);
+    }
+  }
+  expect(f.calls.filter(c => c.path.startsWith('macros/'))).toHaveLength(10);
+});
+
+it.each(['wrong-type', 'whitespace', 'unsafe-id', 'case-fold'] as const)('rejects %s active config before any Package listing', async defect => {
+  const f = await fixture([]);
+  const active = defect === 'wrong-type' ? 'Logic' : defect === 'whitespace' ? [' Logic '] : defect === 'unsafe-id' ? ['bad/name'] : ['Logic', 'logic'];
+  await f.put('config.json', { ...f.config, active_macro_packages: active });
+  await expect(new EntryIdentityIndex(f.root, f.provider, { allowEnoent: true }).snapshot()).rejects.toThrow(/active_macro_packages|Package|case-fold/);
+  expect(f.calls).toEqual([{ op: 'readFile', path: 'config.json' }]);
 });

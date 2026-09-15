@@ -41,6 +41,21 @@ export class EntryIdentityIndex {
       throw new EntityStorageValidationError('Point reads require a supported current entity-storage config version; no aggregate fallback.');
     }
     assertCurrentEntityStorageMetadata(raw);
+    const configured = Object.hasOwn(raw, 'active_macro_packages') ? (raw as Record<string, unknown>).active_macro_packages : undefined;
+    if (Object.hasOwn(raw, 'active_macro_packages') && (!Array.isArray(configured) || !configured.every(id => typeof id === 'string'))) {
+      throw new EntityStorageValidationError('config.json#active_macro_packages must be an array of Package ID strings.');
+    }
+    if (Array.isArray(configured)) {
+      const folded = new Map<string, string>();
+      for (const id of configured as string[]) {
+        assertPackageId(id);
+        const previous = folded.get(id.toLowerCase());
+        if (previous !== undefined && previous !== id) {
+          throw new EntityStorageValidationError('Active Macro Package identities collide under case-folding.');
+        }
+        folded.set(id.toLowerCase(), id);
+      }
+    }
     const packages = new Map<string, PackageManifestRecord>();
     const owners = new Map<string, string>();
     for (const record of await readPackageManifestRecords(storage)) {
@@ -49,10 +64,6 @@ export class EntryIdentityIndex {
         if (owners.has(id)) throw new EntityStorageValidationError(`Duplicate Entry identity ${JSON.stringify(id)} in Package manifests.`);
         owners.set(id, record.manifest.id);
       }
-    }
-    const configured = Object.hasOwn(raw, 'active_macro_packages') ? (raw as Record<string, unknown>).active_macro_packages : undefined;
-    if (Object.hasOwn(raw, 'active_macro_packages') && (!Array.isArray(configured) || !configured.every(id => typeof id === 'string'))) {
-      throw new EntityStorageValidationError('config.json#active_macro_packages must be an array of Package ID strings.');
     }
     const active = configured === undefined ? [...packages.keys()] : configured as string[];
     for (const id of active) {

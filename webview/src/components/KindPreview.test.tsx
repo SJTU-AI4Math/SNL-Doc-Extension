@@ -6,6 +6,7 @@ import { KindPreview } from './KindPreview';
 afterEach(() => {
   cleanup();
   document.body.className = '';
+  document.documentElement.lang = 'en';
   delete document.documentElement.dataset.snlColorScheme;
 });
 
@@ -69,5 +70,24 @@ describe('KindPreview Entry-style interaction', () => {
     fireEvent.keyDown(document, { key: 'Control', ctrlKey: true });
     fireEvent.blur(window);
     expect(preview.style.cursor).toBe('default');
+  });
+});
+
+
+describe('KindPreview inherited color descriptions', () => {
+  it.each([
+    ['en', 'light', 'stroke #123456 / background #abcdef'],
+    ['en', 'dark', 'stroke #fedcba / background #654321'],
+    ['zh-CN', 'light', '描边 #123456 / 背景 #abcdef'],
+    ['zh-CN', 'dark', '描边 #fedcba / 背景 #654321']
+  ] as const)('describes the resolved colors in %s / %s', (locale, scheme, expected) => {
+    document.documentElement.lang = locale;
+    document.documentElement.dataset.snlColorScheme = scheme;
+    const view = render(<KindPreview coloring={coloring} compact />);
+    expect(view.getByTestId('kind-preview').title).toBe(expected);
+    view.rerender(<KindPreview coloring={coloring} title="Authored description" />);
+    expect(view.getByTestId('kind-preview').title).toBe('Authored description');
+    view.rerender(<KindPreview coloring={coloring} title="" />);
+    expect(view.getByTestId('kind-preview').title).toBe('');
   });
 });

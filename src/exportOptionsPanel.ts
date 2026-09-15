@@ -179,6 +179,7 @@ export class ExportOptionsPanel {
 
     switch (msg.type) {
       case 'ready':
+      case 'nav.refresh':
         await this.pushContext();
         return;
 

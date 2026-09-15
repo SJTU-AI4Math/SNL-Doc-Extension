@@ -49,6 +49,44 @@ beforeEach(async () => {
   await f.put('.SNL_Doc/libraries/notes/graph.json', graph);
   await f.put('.SNL_Doc/libraries/notes/counters.json', { counters: [counter] });
 });
+it('returns the exact committed metadata revision and refuses its stale predecessor', async () => {
+  const original = await read('meta');
+  const result = await updateLibrary(root, 'notes', { title: 'New' }, entityRevision(original));
+  const committed = { ...original, title: 'New' };
+  expect(result).toEqual({ status: 'updated', slug: 'notes', title: 'New', revision: entityRevision(committed) });
+  expect(await read('meta')).toEqual(committed);
+  expect(bodies()).toEqual([]);
+  state.calls = [];
+  expect(await updateLibrary(root, 'notes', { title: 'Must not land' }, entityRevision(original))).toEqual({ status: 'conflict', id: 'notes' });
+  expect(await read('meta')).toEqual(committed);
+  expect(writes()).toEqual([]);
+});
+it('rejects the ordered wrong-directory, extra-receipt-key, empty-receipt, deleted-receipt sequence without writes', async () => {
+  const config = JSON.parse(await readFile(join(state.base, 'config.json'), 'utf8'));
+  const original = await read('meta');
+  const reject = async () => {
+    state.calls = [];
+    await expect(updateLibrary(root, 'notes', { title: 'Must not land' }, entityRevision(original))).rejects.toThrow();
+    expect(writes()).toEqual([]);
+    expect(bodies()).toEqual([]);
+    expect(await read('meta')).toEqual(original);
+  };
+  await rename(join(state.base, 'entries'), join(state.base, 'entries-held'));
+  await f.put('.SNL_Doc/entries', {});
+  await reject();
+  await rename(join(state.base, 'entries'), join(state.base, 'wrong-directory-file'));
+  await rename(join(state.base, 'entries-held'), join(state.base, 'entries'));
+  for (const receipt of [{ ...config.entity_storage.receipt, extra: true }, {}, undefined]) {
+    const next = structuredClone(config);
+    if (receipt === undefined) delete next.entity_storage.receipt;
+    else next.entity_storage.receipt = receipt;
+    await f.put('.SNL_Doc/config.json', next);
+    await reject();
+  }
+  await f.put('.SNL_Doc/config.json', config);
+  expect(await updateLibrary(root, 'notes', { title: 'Recovered' }, entityRevision(original))).toMatchObject({ status: 'updated' });
+  expect(bodies()).toEqual([]);
+});
 const writers = [
   ['updateLibrary', async () => updateLibrary(root, 'notes', { title: 'Saved' }, entityRevision(await read('meta')))],
   ['writeLibraryMeta', async () => writeLibraryMeta(root, 'notes', { title: 'Saved' })],

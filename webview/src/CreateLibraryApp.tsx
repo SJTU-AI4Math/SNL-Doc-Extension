@@ -3,13 +3,10 @@
 // Create mode: single-field form (title). Forwards to createLibrary; the host
 // slugifies + creates the directory + writes meta.json.
 //
-// Edit mode: two panels stacked in the same webview.
-//   1. Meta editor (top row): slug (readonly) + title, submits to
-//      updateLibrary. Widens meta.json.
-//   2. Outline editor (below): the branch-tree editor for graph.json.
-//      Shows each Entry node with computed number / title / kind badge /
-//      per-row Add-child / Add-sibling / Delete / Move up / Move down.
-//      All graph mutations post `{ type: 'graphOp', op }` to the host.
+// Edit mode buffers title, outline and counters locally. One guarded Save
+// submits the complete draft with independent metadata/graph/counter revisions.
+// Metadata-only refreshes retain the mounted graph and counters; they never
+// advance a dirty or pending draft's metadata CAS revision.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLibraryEntryLookup, type LibraryLookup } from './reader/useLibraryEntryLookup';
@@ -82,7 +79,8 @@ const LIBRARY_MESSAGES = defineUiMessages(
     removeOutlineDetail: 'This removes only the Library outline node. The shared Entry is not deleted.',
     removeFromOutline: 'Remove from outline',
     graphWarnings: { arg: 'count', one: '⚠️ {count} graph warning', other: '⚠️ {count} graph warnings' },
-    moreWarnings: '… {count} more', counterUpdateFailed: 'Counter update failed: {message}'
+    moreWarnings: '… {count} more', counterUpdateFailed: 'Counter update failed: {message}',
+    metadataRefreshFailed: 'Could not refresh Library metadata.'
   },
   {
     editLibrary: '编辑文库', createLibrary: '创建文库', dashboard: '仪表板', backDashboard: '返回仪表板',
@@ -108,7 +106,8 @@ const LIBRARY_MESSAGES = defineUiMessages(
     removeOutlineTitle: '移除大纲条目？',
     removeOutlineDetail: '这只会移除文库大纲节点，不会删除共享条目。',
     removeFromOutline: '从大纲移除',
-    graphWarnings: '⚠️ {count} 条图警告', moreWarnings: '… 另有 {count} 条', counterUpdateFailed: '计数器更新失败：{message}'
+    graphWarnings: '⚠️ {count} 条图警告', moreWarnings: '… 另有 {count} 条', counterUpdateFailed: '计数器更新失败：{message}',
+    metadataRefreshFailed: '无法刷新文库元数据。'
   }
 );
 
@@ -248,6 +247,7 @@ export function CreateLibraryApp(): React.ReactElement {
   const [graphError, setGraphError] = useState<string | null>(null);
   const [counters, setCounters] = useState<CounterNode[]>([]);
   const [counterError, setCounterError] = useState<string | null>(null);
+  const [metadataError, setMetadataError] = useState<string | null>(null);
   const [pendingGraphDelete, setPendingGraphDelete] = useState<string | null>(null);
   const [contextReady, setContextReady] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
@@ -329,7 +329,9 @@ export function CreateLibraryApp(): React.ReactElement {
             existing?: ExistingLibrary | null;
           }
         | { type: 'created'; slug: string; title: string }
-        | { type: 'updated'; slug: string; title: string }
+        | { type: 'updated'; slug: string; title: string; revision?: string }
+        | { type: 'libraryMetadata'; slug: string; targetState: 'found'; libraryRevision: string; existing: ExistingLibrary }
+        | { type: 'libraryMetadataError'; slug: string; message: string }
         | { type: 'libraryDraftSaved'; requestId: string; slug: string; title: string; revisions: LibraryDraftRevisions }
         | { type: 'libraryDraftSaveError'; requestId: string; message: string }
         | { type: 'duplicate'; slug: string; message: string }
@@ -359,7 +361,26 @@ export function CreateLibraryApp(): React.ReactElement {
         return;
       }
       switch (msg.type) {
+        case 'libraryMetadata':
+          if (typeof msg.slug !== 'string' || msg.slug !== activeSlugRef.current ||
+              msg.targetState !== 'found' || !msg.existing || msg.existing.slug !== msg.slug ||
+              typeof msg.existing.title !== 'string' || typeof msg.libraryRevision !== 'string' ||
+              !/^[a-f0-9]{64}$/.test(msg.libraryRevision)) break;
+          setMetadataError(null);
+          setTargetState('found');
+          if (!formDirtyRef.current && pendingSaveRef.current === null) {
+            revisionsRef.current.meta = msg.libraryRevision;
+            libraryRevisionRef.current = msg.libraryRevision;
+            setTitle(msg.existing.title);
+          }
+          break;
+        case 'libraryMetadataError':
+          if (msg.slug === activeSlugRef.current && typeof msg.message === 'string') {
+            setMetadataError(msg.message);
+          }
+          break;
         case 'context':
+          setMetadataError(null);
           setMode(msg.mode);
           setTargetState(msg.mode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
           setContextReady(true);
@@ -400,6 +421,12 @@ export function CreateLibraryApp(): React.ReactElement {
           setTitle(msg.title);
           break;
         case 'updated':
+          // Legacy title-only ACK is not a whole-draft commit receipt.
+          if (msg.slug !== activeSlugRef.current || formDirtyRef.current || pendingSaveRef.current !== null ||
+              typeof msg.title !== 'string' || typeof msg.revision !== 'string' || !/^[a-f0-9]{64}$/.test(msg.revision)) break;
+          revisionsRef.current.meta = msg.revision;
+          libraryRevisionRef.current = msg.revision;
+          setTitle(msg.title);
           titleDirtyRef.current = false;
           formDirtyRef.current = false;
           setFormDirty(false);
@@ -530,7 +557,7 @@ export function CreateLibraryApp(): React.ReactElement {
     typeof revisionsRef.current.graph === 'string' &&
     typeof revisionsRef.current.counters === 'string'
   );
-  const canSubmit = targetState !== 'notFound' && trimmed.length > 0 &&
+  const canSubmit = metadataError === null && targetState !== 'notFound' && trimmed.length > 0 &&
     status.kind !== 'creating' && pendingSaveRef.current === null && editDraftReady;
 
   // Ctrl/Cmd+S is the same action as the Create/Update button.
@@ -767,7 +794,9 @@ export function CreateLibraryApp(): React.ReactElement {
         </Button>
       ) : null}
 
-      <StatusLine status={status} />
+      <StatusLine status={metadataError !== null
+        ? { kind: 'error', message: metadataError.trim() ? metadataError : t('metadataRefreshFailed') }
+        : status} />
 
       {mode === 'edit' ? (
         <CountersSection

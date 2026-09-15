@@ -10,6 +10,7 @@ import {
   readEntryKinds,
   readLibraryCountersSnapshot,
   readLibraryMeta,
+  readLibraryMetadataSnapshot,
   updateLibraryGraphNodeEntryId,
   updateLibrary,
   updateLibraryDraft,
@@ -176,6 +177,7 @@ export class CreateLibraryPanel {
   private readonly libraryBody = new LibraryBodyHost();
   private disposed = false;
   private contextGeneration = 0;
+  private metadataGeneration = 0;
   private graphGeneration = 0;
   private counterGeneration = 0;
   private mutationTail: Promise<void> = Promise.resolve();
@@ -263,12 +265,17 @@ export class CreateLibraryPanel {
 
     installLibraryWatcher(this.disposables, (uris) => {
       const targets = uris?.map((uri) =>
-        classifyLibraryEditorWatchPath(uri.path, this.slug)
+        this.isOwnMetadata(uri) ? 'metadata' : classifyLibraryEditorWatchPath(uri.path, this.slug)
       ) ?? ['context'];
       if (targets.includes('context')) return this.pushContext();
-      if (targets.includes('counters')) return this.pushCounters('countersPushed');
-      return undefined;
+      return Promise.all([
+        targets.includes('metadata') ? this.pushMetadata() : undefined,
+        targets.includes('counters') ? this.pushCounters('countersPushed') : undefined
+      ]).then(() => undefined);
     }, undefined, (uri) => {
+      // A title change does not retire an in-flight graph hydration or its
+      // dependency receipt. Config/Package/graph events still retire normally.
+      if (this.isOwnMetadata(uri)) { this.metadataGeneration++; return true; }
       const target = classifyLibraryEditorWatchPath(uri.path, this.slug);
       if (target === 'ignore') return false;
       if (target === 'counters') { this.counterGeneration++; return true; }
@@ -291,9 +298,40 @@ export class CreateLibraryPanel {
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
+  private isOwnMetadata(uri: vscode.Uri): boolean {
+    const root = firstWorkspaceFolder();
+    return this.mode === 'edit' && !!root && uri.toString(true) ===
+      vscode.Uri.joinPath(root, '.SNL_Doc', 'libraries', this.slug, 'meta.json').toString(true);
+  }
+
+  private async pushMetadata(): Promise<void> {
+    const generation = ++this.metadataGeneration;
+    const context = this.contextGeneration;
+    const root = firstWorkspaceFolder();
+    const slug = this.slug;
+    const current = () => !this.disposed && this.mode === 'edit' && slug === this.slug &&
+      generation === this.metadataGeneration && context === this.contextGeneration &&
+      root?.toString(true) === firstWorkspaceFolder()?.toString(true);
+    if (!root || this.mode !== 'edit') return;
+    try {
+      const target = await vscode.workspace.fs.stat(vscode.Uri.joinPath(root, '.SNL_Doc', 'libraries', slug));
+      if ((target.type & vscode.FileType.Directory) === 0) throw new Error('Library directory is missing.');
+      const result = await readLibraryMetadataSnapshot(root, slug);
+      if (result.status === 'error') throw new Error(result.message);
+      if (!current()) return;
+      const meta = result.status === 'ok' ? result.meta : null;
+      void this.panel.webview.postMessage({ type: 'libraryMetadata', slug, targetState: 'found',
+        libraryRevision: entityRevision(meta), existing: { slug, title: typeof meta?.title === 'string' ? meta.title : slug } });
+    } catch (error) {
+      if (current()) void this.panel.webview.postMessage({ type: 'libraryMetadataError', slug,
+        message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
   private async pushContext(): Promise<void> {
     if (this.disposed) return;
     const generation = ++this.contextGeneration;
+
     if (this.mode === 'create') {
       void this.panel.webview.postMessage({ type: 'context', mode: 'create', targetState: 'found' });
       return;
@@ -333,7 +371,15 @@ export class CreateLibraryPanel {
         return;
       }
       // meta.json is the source of truth for title (per Task 1 refactor).
-      const metaResult = await readLibraryMeta(root, this.slug);
+      // A concurrent metadata-only event must not suppress initial context,
+      // nor cancel its graph/counter hydration. Retry only the small read.
+      let metadataGeneration: number;
+      let metaResult: Awaited<ReturnType<typeof readLibraryMeta>>;
+      do {
+        metadataGeneration = this.metadataGeneration;
+        metaResult = await readLibraryMeta(root, this.slug);
+        if (this.disposed || generation !== this.contextGeneration || root?.toString() !== firstWorkspaceFolder()?.toString()) return;
+      } while (metadataGeneration !== this.metadataGeneration);
       if (this.disposed || generation !== this.contextGeneration || root?.toString() !== firstWorkspaceFolder()?.toString()) return;
       if (metaResult.status === 'error') throw new Error(metaResult.message);
       const title =
@@ -343,13 +389,9 @@ export class CreateLibraryPanel {
       const libraryRevision = entityRevision(
         metaResult.status === 'ok' ? metaResult.meta : null
       );
-      void this.panel.webview.postMessage({
-        type: 'context',
-        mode: 'edit',
-        slug: this.slug,
-        targetState: 'found',
-        libraryRevision,
-        existing: { slug: this.slug, title }
+      if (metadataGeneration === this.metadataGeneration) void this.panel.webview.postMessage({
+        type: 'context', mode: 'edit', slug: this.slug, targetState: 'found',
+        libraryRevision, existing: { slug: this.slug, title }
       });
       // Push the outline immediately after context so the webview has
       // everything it needs to render in one paint.
@@ -624,9 +666,10 @@ export class CreateLibraryPanel {
             await this.panel.webview.postMessage({
               type: 'updated',
               slug: result.slug,
-              title: result.title
+              title: result.title,
+              revision: result.revision
             });
-            await this.pushContext();
+            await this.pushMetadata();
             return;
           case 'conflict': {
             const text = libraryT()('libraryConflict', { slug: result.id });

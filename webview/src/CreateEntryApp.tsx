@@ -1126,6 +1126,9 @@ export function CreateEntryApp(): React.ReactElement {
           contextEstablishedGenerationRef.current === incomingGeneration
         ) return;
         if (futureGeneration) {
+          // Inline Package selection belongs to the old target, even when a
+          // new context arrives before retarget (which will then be ignored).
+          packageSelectionDirtyRef.current = false;
           targetGenerationRef.current = incomingGeneration;
           contextEstablishedGenerationRef.current = null;
           for (const generation of pendingTargetMessagesRef.current.keys()) {

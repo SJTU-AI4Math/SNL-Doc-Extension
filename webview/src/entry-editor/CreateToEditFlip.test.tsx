@@ -396,6 +396,45 @@ describe('CreateEntryApp create → edit flip', () => {
       .toBe('Algebra'));
   });
 
+  it.each(['context-first', 'retarget-first'] as const)(
+    'submits the new target Package after inline creation (%s)', async (order) => {
+      const view = render(<CreateEntryApp />);
+      const contextAt = (targetGeneration: number, selectedPackage: string) => ({
+        ...(createContext() as Record<string, unknown>), targetGeneration, selectedPackage,
+        entryPackages: ['_unpackaged', 'Algebra', 'Logic']
+      });
+      act(() => send(contextAt(1, '_unpackaged')));
+      act(() => send({ type: 'openPackageCreator', targetGeneration: 1 }));
+      fireEvent.change(view.getByLabelText('New Entry Package ID'), { target: { value: 'Algebra' } });
+      fireEvent.click(view.getByRole('button', { name: 'Add Entry Package' }));
+      const request = posted.findLast((message) => message?.type === 'createPackage');
+      expect(request).toMatchObject({ packageId: 'Algebra' });
+      act(() => send({ type: 'packageCreated', packageId: 'Algebra', requestId: 'stale', targetGeneration: 1 }));
+      expect((view.getByLabelText('Entry Package') as HTMLInputElement).value).toBe('Unpackaged (_unpackaged)');
+      act(() => send({ type: 'packageCreated', packageId: 'Algebra', requestId: request.requestId, targetGeneration: 1 }));
+      for (let refresh = 0; refresh < 2; refresh++) {
+        act(() => send(contextAt(1, '_unpackaged')));
+        expect((view.getByLabelText('Entry Package') as HTMLInputElement).value).toBe('Algebra');
+      }
+
+      const retarget = { type: 'retarget', mode: 'create', targetGeneration: 2 };
+      // Separate deliveries exercise the already-established-context early return.
+      act(() => send(order === 'context-first' ? contextAt(2, 'Logic') : retarget));
+      act(() => send(order === 'context-first' ? retarget : contextAt(2, 'Logic')));
+      for (let refresh = 0; refresh < 2; refresh++) act(() => send(contextAt(2, 'Logic')));
+      // A retired acknowledgement must not reclaim the selection.
+      act(() => send({ type: 'packageCreated', packageId: 'Algebra', requestId: request.requestId, targetGeneration: 1 }));
+      fireEvent.input(view.getByLabelText('Title'), { target: { value: 'New target' } });
+      fireEvent.input(view.container.querySelector<HTMLInputElement>('#snl-entry-id')!, { target: { value: 'new-target' } });
+      const submit = view.getByRole('button', { name: 'Create Entry' }) as HTMLButtonElement;
+      expect(submit.disabled).toBe(false);
+      fireEvent.click(submit);
+      const creates = posted.filter((message) => message?.type === 'create');
+      expect(creates).toHaveLength(1);
+      expect(creates[0].entry).toMatchObject({ id: 'new-target', package: 'Logic' });
+    }
+  );
+
   it('keeps the Package creator open with an actionable host error', async () => {
     const view = render(<CreateEntryApp />);
     send(editContext({

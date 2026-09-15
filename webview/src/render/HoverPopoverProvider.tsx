@@ -173,9 +173,13 @@ interface HoverPopoverProviderProps {
 const HOVER_OPEN_DELAY_MS = 1000;
 const FADE_MS = 150;
 const EMPTY_ENTRY_PACKAGES: Readonly<Record<string, string>> = Object.freeze({});
+// Frame identity scopes this association across independent providers. Keep the
+// live origin element, not a cached rectangle, so scrolling cannot stale it.
+const frameOrigins = new WeakMap<HTMLElement, HTMLElement>();
 
 export function entryPopoverFrameStyle(
-  value: PopoverPhase | Pick<HoverPopover<string>, 'phase' | 'y' | 'originRect'>
+  value: PopoverPhase | Pick<HoverPopover<string>, 'phase' | 'y' | 'originRect'>,
+  parentOrigin?: Pick<DOMRect, 'top' | 'bottom'>
 ): React.CSSProperties {
   // Preserve the phase-only helper contract for non-DOM consumers. Production
   // always supplies the complete instance so viewport-side sizing is active.
@@ -183,11 +187,22 @@ export function entryPopoverFrameStyle(
     ? { phase: value, y: 8, originRect: { top: 16, bottom: 16 } }
     : value;
   const viewportMargin = 8;
+  const viewportHeight = typeof window === 'undefined' ? Number.POSITIVE_INFINITY : window.innerHeight;
   const belowTop = Math.max(popover.y, popover.originRect.bottom + viewportMargin);
-  const availableAbove = popover.originRect.top - 2 * viewportMargin;
-  const availableBelow = typeof window === 'undefined'
-    ? Number.POSITIVE_INFINITY
-    : window.innerHeight - belowTop - viewportMargin;
+  let upperBound = viewportMargin;
+  let lowerBound = viewportHeight - viewportMargin;
+  // A descendant must not grow back across its parent's clickable origin band.
+  // Compare usable space on each side after reserving that band; tall content
+  // keeps the existing frame scrollbars instead of covering ancestor controls.
+  if (Number.isFinite(viewportHeight) && parentOrigin && Number.isFinite(parentOrigin.top) && Number.isFinite(parentOrigin.bottom) &&
+      parentOrigin.top <= parentOrigin.bottom) {
+    if (parentOrigin.bottom <= popover.originRect.top)
+      upperBound = Math.max(upperBound, parentOrigin.bottom + viewportMargin);
+    if (parentOrigin.top >= popover.originRect.bottom)
+      lowerBound = Math.min(lowerBound, parentOrigin.top - viewportMargin);
+  }
+  const availableAbove = Math.max(0, popover.originRect.top - viewportMargin - upperBound);
+  const availableBelow = Math.max(0, lowerBound - belowTop);
   const placeAbove = availableAbove > availableBelow;
   return {
     ...popoverFrameStyle(),
@@ -196,7 +211,8 @@ export function entryPopoverFrameStyle(
     // side of the live origin itself, so the hovered target remains clickable.
     maxHeight: placeAbove
       ? `${Math.max(0, availableAbove)}px`
-      : `min(calc(100vh - 16px), calc(100vh - ${belowTop + viewportMargin}px))`,
+      : Number.isFinite(availableBelow) ? `${availableBelow}px`
+        : `min(calc(100vh - 16px), calc(100vh - ${belowTop + viewportMargin}px))`,
     ...(placeAbove
       ? {
           // Anchor compact above-side frames to the origin. Pinning `top` to the
@@ -225,6 +241,15 @@ function EntryPopoverFrameMarker({ popover }: {
   popover: HoverPopover<string>;
 }): React.ReactElement {
   const markerRef = useRef<HTMLSpanElement>(null);
+  useSsrSafeLayoutEffect(() => {
+    const frame = markerRef.current?.parentElement;
+    const origin = popover.originElement;
+    if (!frame || !origin) return;
+    frameOrigins.set(frame, origin);
+    return () => {
+      if (frameOrigins.get(frame) === origin) frameOrigins.delete(frame);
+    };
+  }, [popover.originElement]);
   useSsrSafeLayoutEffect(() => {
     const frame = markerRef.current?.parentElement;
     if (!frame) return;
@@ -479,8 +504,12 @@ export function HoverPopoverProvider({
   );
 
   const style = useMemo(
-    () => (popover: HoverPopover<string>): React.CSSProperties =>
-      entryPopoverFrameStyle(popover),
+    () => (popover: HoverPopover<string>): React.CSSProperties => {
+      const parentFrame = popover.parentId
+        ? popover.originElement?.closest<HTMLElement>('.snl-entry-hover-popover') : null;
+      const parentOrigin = parentFrame ? frameOrigins.get(parentFrame) : undefined;
+      return entryPopoverFrameStyle(popover, parentOrigin?.getBoundingClientRect());
+    },
     []
   );
 

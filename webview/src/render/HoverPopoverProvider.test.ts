@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+afterEach(() => vi.unstubAllGlobals());
 import {
   entryPopoverFrameStyle,
   entryDetailsRequest,
@@ -8,6 +11,50 @@ import {
 import type { EntryOption } from './EntrySurface';
 
 describe('recursive popover frame geometry', () => {
+  it('places a nested frame below instead of covering its parent origin band', () => {
+    vi.stubGlobal('window', { innerHeight: 700 });
+    const originRect = new DOMRect(27, 389, 78, 26);
+    const value = { phase: 'visible' as const, y: originRect.bottom + 8, originRect };
+    const style = entryPopoverFrameStyle(value, { top: 298, bottom: 323 });
+    expect(style.top).toBe(originRect.bottom + 8);
+    expect(style.bottom).toBeUndefined();
+    expect(style.overflowY).toBe('auto');
+  });
+
+  it('places a nested frame above when the parent origin blocks the lower side', () => {
+    vi.stubGlobal('window', { innerHeight: 700 });
+    const originRect = new DOMRect(27, 260, 78, 26);
+    const value = { phase: 'visible' as const, y: originRect.bottom + 8, originRect };
+    const style = entryPopoverFrameStyle(value, { top: 500, bottom: 526 });
+    expect(style.top).toBe('auto');
+    expect(style.bottom).toBe(700 - originRect.top + 8);
+  });
+
+  it('caps tall nested frames at the parent band on either selected side', () => {
+    vi.stubGlobal('window', { innerHeight: 700 });
+    const highOrigin = new DOMRect(20, 500, 30, 26);
+    const highParent = { top: 174, bottom: 200 };
+    const above = entryPopoverFrameStyle({ phase: 'visible', y: highOrigin.bottom + 8, originRect: highOrigin }, highParent);
+    expect(above.top).toBe('auto');
+    expect(above.maxHeight).toBe(`${highOrigin.top - 8 - (highParent.bottom + 8)}px`);
+    const lowOrigin = new DOMRect(20, 250, 30, 26);
+    const lowParent = { top: 600, bottom: 626 };
+    const below = entryPopoverFrameStyle({ phase: 'visible', y: lowOrigin.bottom + 8, originRect: lowOrigin }, lowParent);
+    expect(below.top).toBe(lowOrigin.bottom + 8);
+    expect(below.maxHeight).toBe(`${lowParent.top - 8 - (lowOrigin.bottom + 8)}px`);
+  });
+
+  it('preserves the no-window helper and ignores invalid or overlapping parent bands', () => {
+    const originRect = new DOMRect(20, 260, 30, 26);
+    const value = { phase: 'visible' as const, y: originRect.bottom + 8, originRect };
+    vi.stubGlobal('window', undefined);
+    expect(entryPopoverFrameStyle(value, { top: 500, bottom: 526 })).toEqual(entryPopoverFrameStyle(value));
+    expect(entryPopoverFrameStyle('visible').overflowY).toBe('visible');
+    vi.stubGlobal('window', { innerHeight: 700 });
+    expect(entryPopoverFrameStyle(value, { top: NaN, bottom: 300 })).toEqual(entryPopoverFrameStyle(value));
+    expect(entryPopoverFrameStyle(value, { top: 270, bottom: 275 })).toEqual(entryPopoverFrameStyle(value));
+  });
+
   it('caps the shell to desktop 720px and the narrow viewport without cropping horizontal content', () => {
     const style = entryPopoverFrameStyle('visible');
     expect(style.maxWidth).toBe('min(720px, calc(100vw - 16px))');

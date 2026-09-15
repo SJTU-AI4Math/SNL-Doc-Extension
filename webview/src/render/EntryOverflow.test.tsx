@@ -91,6 +91,13 @@ describe('EntrySurface horizontal overflow', () => {
     expect(entrySurfaceCss).not.toMatch(/\.katex\s*\{[^}]*overflow-wrap:\s*anywhere/s);
   });
 
+  it('keeps root Computer Modern typography out of nested formula and code resets', () => {
+    // Preserve the independent negative controls from the older CM lane;
+    // current root sizing is 1.21em, not that lane's superseded 1em rule.
+    expect(entrySurfaceCss).not.toMatch(/\.snl-text\s+:is\([^)]*\.katex[^)]*\)\s*\{[^}]*font-(?:family|size):/s);
+    expect(entrySurfaceCss).not.toMatch(/\.snl-markdown-body\s+(?:pre|code)\s*\{[^}]*font-family:\s*KaTeX_Main/s);
+  });
+
   it('resets inherited emergency wrapping inside nested formula and code islands', () => {
     expect(entrySurfaceCss).toMatch(
       /\.snl-text\s+:is\([^)]*\.katex[^)]*\.katex \*[^)]*pre[^)]*code[^)]*\)\s*\{[^}]*overflow-wrap:\s*normal[^}]*word-break:\s*normal/s

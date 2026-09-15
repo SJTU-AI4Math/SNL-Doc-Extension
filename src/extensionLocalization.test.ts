@@ -173,6 +173,25 @@ describe('extension host UI localization', () => {
     );
   });
 
+  it.each(['en', 'zh-CN'])('describes global cache regeneration even for legacy scope arguments (%s)', async language => {
+    mocks.language = language;
+    const action = language === 'en' ? 'Regenerate' : '重新生成';
+    mocks.showWarningMessage.mockResolvedValue(action);
+    mocks.regenerateDependencyRelationships.mockResolvedValue({ status: 'ok', report: {
+      added: 0, updated: 0, removed: 0, totalDepends: 0, totalUsesContext: 1, atomicCount: 0, preservedUser: 1
+    } });
+    await command('snlDoc.regenerateDependencies')({ entryIds: ['entry.one'] });
+    const [prompt, options] = mocks.showWarningMessage.mock.calls.at(-1)!;
+    expect(prompt).toContain(language === 'en' ? 'whole entry pool' : '整个条目池');
+    expect(options.detail).toContain('Cache');
+    expect(options.detail).toContain('uses_context');
+    expect(options.detail).toContain(language === 'en' ? 'Authoring bytes unchanged' : 'Authoring 字节不变');
+    expect(options.detail).not.toContain(language === 'en' ? 'outside the scope' : '范围外');
+    expect(mocks.regenerateDependencyRelationships).toHaveBeenCalledWith(mocks.workspaceRoot, {
+      entryIds: new Set(['entry.one'])
+    });
+  });
+
   it('chooses an Entry Package in a native QuickPick before opening Create Entry', async () => {
     mocks.readEntryPackages.mockResolvedValue([
       { id: 'core', name: 'Core', description: '', entryCount: 2 },

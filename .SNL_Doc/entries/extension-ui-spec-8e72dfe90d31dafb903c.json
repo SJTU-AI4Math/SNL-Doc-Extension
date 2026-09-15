@@ -8,7 +8,7 @@
     "kind": "command",
     "title": "snlDoc.regenerateDependencies",
     "content": {
-      "snl": "%#0 scans all or an optional scoped set of Entries, regenerates both depends and uses_context relationships, recomputes metadata.isAtomic, and preserves user-authored plus out-of-scope generated rows in #1.%(snlDoc.regenerateDependencies,Path.join(Folder.SNL_Doc,File.relationships_json))"
+      "snl": "%#0 rebuilds the whole-workspace dependencies Cache from Entry SNL and active Macro source.entries, generating only depends rows tagged macro-source-scan and recomputing their metadata.isAtomic against the merged graph. Legacy scope arguments remain accepted for source compatibility, but never restrict this global rebuild. Authoring bytes in #1 remain unchanged: manual depends, uses_context, other generators, and saved historical automatic rows are preserved. Consumers merge preserved Authoring with the current generated subset; uses_context counts report preserved rows, not newly generated relationships. This command follows spec.cache.dependencies rather than the retired scoped Authoring writer.%(snlDoc.regenerateDependencies,Path.join(Folder.SNL_Doc,File.relationships_json))"
     },
     "contribution_info": null,
     "pointer": null,

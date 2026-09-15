@@ -82,7 +82,7 @@ const UI_MESSAGES = defineHostMessages(
     scopeWholePool: 'the whole entry pool',
     scopeEntries: { arg: 'count', one: '{count} entry', other: '{count} entries' },
     regeneratePrompt: 'Regenerate dependency relationships for {scope}?',
-    regenerateDetail: 'Scans each entry\'s SNL content for macro uses, resolves each macro\'s source.entries[] and emits a "depends" edge per (entry, source) pair.\n\nUser-authored relationships (label ≠ "depends" or missing generator tag) are preserved. Auto rows outside the scope are also preserved. Atomicity (metadata.isAtomic) is recomputed globally over the merged depends-graph.',
+    regenerateDetail: 'Scans each entry\'s SNL content and active Macro source.entries to rebuild the whole-workspace dependencies Cache. Only macro-source-scan depends rows are generated; uses_context and other sources are preserved. This keeps all Authoring bytes unchanged. Atomicity is computed against the merged depends graph and updated only on generated rows.',
     regenerateAction: 'Regenerate',
     regenerateFailed: 'Regenerate dependencies failed: {error}',
     regenerateSuccess: 'Dependencies regenerated. +{added} / ~{updated} / −{removed}. {depends} "depends" edges, {usesContext} "uses_context" edges ({atomic} atomic total). {preserved} user-authored rows preserved.',
@@ -161,7 +161,7 @@ const UI_MESSAGES = defineHostMessages(
     scopeWholePool: '整个条目池',
     scopeEntries: { arg: 'count', other: '{count} 个条目' },
     regeneratePrompt: '为{scope}重新生成依赖关系？',
-    regenerateDetail: '扫描每个条目的 SNL 内容以查找宏用法，解析每个宏的 source.entries[]，并为每个（条目，源）对生成一条“depends”边。\n\n保留用户创建的关系（标签不为“depends”或缺少生成器标记），也保留范围外的自动生成行。metadata.isAtomic 会基于合并后的 depends 图全局重新计算。',
+    regenerateDetail: '扫描每个条目的 SNL 内容及激活宏的 source.entries，重建整个工作区的 dependencies Cache。仅生成带 macro-source-scan 标记的 depends；uses_context 和其他来源的记录均保留。全部 Authoring 字节不变。基于合成 depends 图计算原子性，仅更新本次生成的边。',
     regenerateAction: '重新生成',
     regenerateFailed: '重新生成依赖关系失败：{error}',
     regenerateSuccess: '依赖关系已重新生成。+{added} / ~{updated} / −{removed}。共 {depends} 条“depends”边、{usesContext} 条“uses_context”边（共 {atomic} 个原子条目）。保留了 {preserved} 条用户创建的记录。',
@@ -960,10 +960,8 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
-  // Auto-generate dependency relationships from macro-source scanning
-  // (cat 2026-07-10 §3). Two entry points:
-  //   - pool-wide  (Dashboard button, palette command)
-  //   - per-entry  (invoked from Entry editor after a save — future)
+  // Rebuild the global dependency Cache without changing Authoring.
+  // Legacy scope arguments are accepted, not a promise of partial generation.
   const regenerateDependencies = vscode.commands.registerCommand(
     'snlDoc.regenerateDependencies',
     async (scopeArg?: unknown) => {
@@ -972,7 +970,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.window.showErrorMessage(t('regenerateNoWorkspace'));
         return;
       }
-      // scopeArg shape: undefined → pool-wide; { entryIds: string[] } → subset.
+      // Normalize legacy scope arguments for compatibility; the backend rebuild is global.
       let scope: { entryIds: Set<string> | null } = { entryIds: null };
       if (
         scopeArg &&
@@ -984,10 +982,8 @@ export function activate(context: vscode.ExtensionContext): void {
         );
         scope = { entryIds: new Set(arr) };
       }
-      const scopeLabel =
-        scope.entryIds === null
-          ? t('scopeWholePool')
-          : t('scopeEntries', { count: scope.entryIds.size });
+      // Legacy arguments remain accepted; the dependency Cache is always global.
+      const scopeLabel = t('scopeWholePool');
       const regenerateAction = t('regenerateAction');
       const confirmed = await vscode.window.showWarningMessage(
         t('regeneratePrompt', { scope: scopeLabel }),

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -219,6 +219,56 @@ describe('VS Code workspace data migration adapter', () => {
     expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.1.0' });
     expect(get('/ws/.SNL_Doc/term_macros/Logic.json')).toMatchObject({ version: '8' });
   });
+
+  it.each(['valid', 'receipt', 'directory', 'owner'] as const)(
+    'public current-noop admission validates %s topology without writes or canonicalization', async (defect) => {
+      for (const directory of ['packages', 'entries', 'macros', 'libraries']) {
+        makeDirectory(`/ws/.SNL_Doc/${directory}`);
+      }
+      put('/ws/.SNL_Doc/config.json', {
+        version: '0.1.0', entry_kinds: [], macro_kinds: [],
+        entity_storage: {
+          version: 1, legacy_backup_version: '0.0.5', entry_default_package: UNPACKAGED_PACKAGE_ID,
+          receipt: makeEntityStorageReceipt(null, new Map(), false)
+        }
+      });
+      put(`/ws/.SNL_Doc/${packageManifestPath(UNPACKAGED_PACKAGE_ID)}`,
+        makePackageManifest(UNPACKAGED_PACKAGE_ID, 'Unpackaged', ''));
+      put(`/ws/.SNL_Doc/${packageManifestPath('Logic')}`,
+        makePackageManifest('Logic', 'Logic', '', ['entry.one']));
+      put(`/ws/.SNL_Doc/${entryEntityPath('Logic', 'entry.one')}`,
+        makeEntryEnvelope('Logic', {
+          id: 'entry.one', package: 'Logic', kind: 'definition', title: 'One', content: { snl: '' }, pointer: null
+        }));
+      const root = vscode.Uri.file('/ws');
+      expect((await inspectWorkspaceDataVersion(root)).status).toBe('current');
+      if (defect === 'receipt') {
+        const config = get('/ws/.SNL_Doc/config.json') as { entity_storage: { receipt?: unknown } };
+        delete config.entity_storage.receipt;
+        put('/ws/.SNL_Doc/config.json', config);
+      } else if (defect === 'directory') {
+        rmSync(mocks.physicalPath('/ws/.SNL_Doc/entries'), { recursive: true });
+      } else if (defect === 'owner') {
+        rmSync(mocks.physicalPath(`/ws/.SNL_Doc/${packageManifestPath('Logic')}`));
+      }
+      const bytes = () => readdirSync(mocks.tempRoot, { recursive: true }).map(String).sort()
+        .filter(path => statSync(join(mocks.tempRoot, path)).isFile())
+        .map(path => [path, readFileSync(join(mocks.tempRoot, path)).toString('hex')]);
+      const before = bytes();
+      const canonicalize = vi.fn((_file: string, raw: unknown) => raw);
+      mocks.readDirectories.clear();
+      const result = migrateWorkspaceData(root, canonicalize);
+      if (defect === 'valid') {
+        await expect(result).resolves.toMatchObject({ applied: [] });
+        // The public boundary pays for one fresh topology scan; the kernel's
+        // separate zero-enumeration no-op contract is not a zero-I/O API claim.
+        expect(mocks.readDirectories.get('/ws/.SNL_Doc/entries')).toBe(1);
+      } else await expect(result).rejects.toThrow(/receipt|metadata|missing|Package|owner/i);
+      expect(canonicalize).not.toHaveBeenCalled();
+      expect(mocks.rename).not.toHaveBeenCalled();
+      expect(bytes()).toEqual(before);
+    }
+  );
 
   it('reads each current entity directory and file once for a Dashboard refresh', async () => {
     for (const directory of ['packages', 'entries', 'macros', 'libraries']) {

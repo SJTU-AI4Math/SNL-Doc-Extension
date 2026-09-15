@@ -165,12 +165,16 @@ export async function migrateWorkspaceData(
   }
   activeWorkspaceMigrations.add(key);
   try {
-    return await withWorkspaceDataLock(workspaceRoot, 'migration', async () =>
-      migrateStoredWorkspaceData(
-        createVscodeDataMigrationStorage(workspaceRoot),
-        canonicalizeMacroPackage
-      )
-    );
+    return await withWorkspaceDataLock(workspaceRoot, 'migration', async () => {
+      const storage = createVscodeDataMigrationStorage(workspaceRoot);
+      // Public admission validates topology even when the migration kernel is
+      // a config-only no-op. Keep the kernel's zero-enumeration contract intact.
+      const inspection = await inspectStoredWorkspaceData(storage);
+      if (inspection.status !== 'current' && inspection.status !== 'needsMigration') {
+        throw new Error(inspection.message);
+      }
+      return migrateStoredWorkspaceData(storage, canonicalizeMacroPackage);
+    });
   } finally {
     activeWorkspaceMigrations.delete(key);
   }

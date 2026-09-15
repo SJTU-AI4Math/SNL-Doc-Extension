@@ -1119,6 +1119,36 @@ async function main() {
     'dynamic Macro requires #*'
   );
 
+  // Preserve the original independent cross-language negative oracles under
+  // the v11 whole-TemplateSpec representation (not a flat-template substitute).
+  const mismatchedLocalized = await addMacro(root, 'test_pkg', {
+    ...localizedMacro,
+    name: 'Bad.mismatchedLocalized',
+    styles: [{
+      style_name: 'default', tags: [],
+      template: { type: 'i18n', default_language: 'en', values: {
+        en: { mode: 'text', body: '#0 is a group' },
+        'zh-CN': { mode: 'text', body: '#1 是群' }
+      } }
+    }]
+  });
+  assert(mismatchedLocalized.status === 'invalid',
+    'localized Macro rejects cross-language positional arity mismatch');
+  const incompleteDynamicLocalized = await addMacro(root, 'test_pkg', {
+    ...localizedMacro,
+    name: 'Bad.dynamicLocalized',
+    dynamic_arity: true,
+    styles: [{
+      style_name: 'default', tags: [],
+      template: { type: 'i18n', default_language: 'en', values: {
+        en: { mode: 'text', body: 'all: #*' },
+        'zh-CN': { mode: 'text', body: '全部' }
+      } }
+    }]
+  });
+  assert(incompleteDynamicLocalized.status === 'invalid',
+    'dynamic localized Macro requires #* in every language');
+
   console.log('\n[18] addMacro to missing package -> noFile');
   const noFileMacro = await addMacro(root, 'no_such_pkg', validMacro);
   assert(noFileMacro.status === 'noFile', 'addMacro missing pkg -> noFile');
@@ -2446,8 +2476,11 @@ async function main() {
     version: '7', name: 'Legacy', description: 'before', vendor_extension: { keep: true },
     macros: {
       'Legacy.macro': {
+        description: '', dynamic_arity: false, tags: [],
         source: { entries: [], urls: [], vendor_source: { keep: true } },
-        styles: []
+        // A valid predecessor Macro isolates the workspace-version gate; an
+        // empty styles array fails Macro validation before reaching that gate.
+        styles: [{ style_name: 'default', mode: 'formula_inline', template: 'x', tags: [] }]
       }
     }
   };
@@ -2510,7 +2543,7 @@ async function main() {
   }, macroPackageMetadataRevision(legacyPackageBeforeUpdate.raw));
   assert(
     legacyUpdated.status === 'error' && /requires migration/i.test(legacyUpdated.message),
-    'predecessor Package metadata update is blocked until migration'
+    `predecessor Package metadata update is blocked until migration: ${JSON.stringify(legacyUpdated)}`
   );
   const legacyWrapperAfter = JSON.parse(await fs.readFile(legacyWrapperPath, 'utf8'));
   assert(legacyWrapperAfter.name === 'Legacy' && legacyWrapperAfter.vendor_extension?.keep === true,

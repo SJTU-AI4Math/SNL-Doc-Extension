@@ -158,6 +158,19 @@ async function exists(uri: vscode.Uri): Promise<boolean> {
   }
 }
 
+// Read/initialization authority must distinguish absence from provider failure.
+// Deliberately do not change the legacy best-effort exists() callers here.
+async function existsOrThrow(uri: vscode.Uri): Promise<boolean> {
+  try {
+    await vscode.workspace.fs.stat(uri);
+    return true;
+  } catch (error) {
+    const code = (error as { code?: unknown } | null)?.code;
+    if (code === 'ENOENT' || code === 'FileNotFound') return false;
+    throw error;
+  }
+}
+
 async function readJson<T>(uri: vscode.Uri): Promise<T> {
   const bytes = await vscode.workspace.fs.readFile(uri);
   return JSON.parse(DECODER.decode(bytes)) as T;
@@ -614,11 +627,11 @@ function snlRelativeUri(workspaceRoot: vscode.Uri, path: string): vscode.Uri {
 function entityReadStorage(workspaceRoot: vscode.Uri): EntityReadStorage {
   return {
     async directoryExists(directory): Promise<boolean> {
-      return exists(snlRelativeUri(workspaceRoot, directory));
+      return existsOrThrow(snlRelativeUri(workspaceRoot, directory));
     },
     async listJsonFiles(directory): Promise<string[]> {
       const uri = snlRelativeUri(workspaceRoot, directory);
-      if (!(await exists(uri))) return [];
+      if (!(await existsOrThrow(uri))) return [];
       return (await vscode.workspace.fs.readDirectory(uri))
         .filter(([name, type]) => type === vscode.FileType.File && name.endsWith('.json'))
         .map(([name]) => name)
@@ -626,7 +639,7 @@ function entityReadStorage(workspaceRoot: vscode.Uri): EntityReadStorage {
     },
     async readJson(path): Promise<unknown | null> {
       const uri = snlRelativeUri(workspaceRoot, path);
-      return await exists(uri) ? readJson<unknown>(uri) : null;
+      return await existsOrThrow(uri) ? readJson<unknown>(uri) : null;
     }
   };
 }
@@ -646,7 +659,7 @@ function entityStorageModeFromConfig(raw: unknown): boolean {
 
 async function usesEntityStorage(workspaceRoot: vscode.Uri): Promise<boolean> {
   const uri = configUri(workspaceRoot);
-  if (!(await exists(uri))) return false;
+  if (!(await existsOrThrow(uri))) return false;
   let raw: unknown;
   try {
     raw = await readJson<unknown>(uri);
@@ -1165,6 +1178,29 @@ function normalizeInitializationPresetChoices(
   return normalized;
 }
 
+/**
+ * Initialization failed after requesting config publication. The provider may
+ * have applied rename even if its promise rejected. All canonical files remain
+ * untouched by rollback: workspace.fs has no atomic conditional-delete API,
+ * including on file: (an advisory writer lock does not exclude external edits).
+ * This is safe residue, not a transaction journal or global read/write fence.
+ */
+export class SnlInitializationRecoveryRequiredError extends Error {
+  readonly configMayBePublished = true;
+
+  constructor(readonly recoveryUri: vscode.Uri, cause: unknown) {
+    super(
+      `${cause instanceof Error ? cause.message : String(cause)} ` +
+      `Explicit recovery required: config may have been published at ${recoveryUri.toString()}. ` +
+      `No canonical files were rolled back. Stop all writers, back up the entire .SNL_Doc directory, ` +
+      `and reconcile config and Package/Entry/Macro membership before retrying. ` +
+      `Do not automatically delete or overwrite config.json; it may belong to another writer.`,
+      { cause }
+    );
+    this.name = 'SnlInitializationRecoveryRequiredError';
+  }
+}
+
 async function initializeSnlDocSkeleton(
   workspaceRoot: vscode.Uri,
   choices: InitKindPresetChoices
@@ -1175,7 +1211,7 @@ async function initializeSnlDocSkeleton(
   await fsApi.createDirectory(root);
 
   return withExtensionWriterLock(workspaceRoot, 'initialize SNL Doc', async () => {
-    if (await exists(configTarget)) {
+    if (await existsOrThrow(configTarget)) {
       await assertWorkspaceWritableOnDisk(workspaceRoot);
       return { status: 'exists' };
     }
@@ -1192,17 +1228,17 @@ async function initializeSnlDocSkeleton(
       [macroDir, new Set<string>()],
       [packageDir, new Set([unpackagedPath.split('/').at(-1)!])]
     ] as const) {
-      if (!(await exists(directory))) continue;
+      if (!(await existsOrThrow(directory))) continue;
       for (const [name, type] of await fsApi.readDirectory(directory)) {
         if (type === vscode.FileType.File && name.toLowerCase().endsWith('.json') && !allowed.has(name)) {
           throw new Error(`Cannot initialize: config.json is missing but ${name} already exists.`);
         }
       }
     }
-    const libraryItems = await exists(librariesDir)
+    const libraryItems = await existsOrThrow(librariesDir)
       ? (await fsApi.readDirectory(librariesDir)).filter(([name]) => name !== '.gitkeep')
       : [];
-    if (libraryItems.length > 0 || await exists(entriesUri(workspaceRoot)) || await exists(termMacrosDirUri(workspaceRoot))) {
+    if (libraryItems.length > 0 || await existsOrThrow(entriesUri(workspaceRoot)) || await existsOrThrow(termMacrosDirUri(workspaceRoot))) {
       throw new Error('Cannot initialize over legacy or unrelated data without config.json.');
     }
 
@@ -1222,7 +1258,7 @@ async function initializeSnlDocSkeleton(
     };
     const unpackagedMatchesCurrent = async (): Promise<boolean> =>
       exactJsonObject(await readJson<unknown>(unpackagedUri), unpackagedManifest);
-    const unpackagedExists = await exists(unpackagedUri);
+    const unpackagedExists = await existsOrThrow(unpackagedUri);
     if (unpackagedExists) {
       const rawManifest = await readJson<unknown>(unpackagedUri);
       const {
@@ -1258,11 +1294,11 @@ async function initializeSnlDocSkeleton(
         await fsApi.rename(manifestTemporary, unpackagedUri, { overwrite: false });
       } catch (error) {
         try {
-          if (await exists(manifestTemporary)) {
+          if (await existsOrThrow(manifestTemporary)) {
             await fsApi.delete(manifestTemporary, { recursive: false, useTrash: false });
           }
         } catch { /* preserve the publish error */ }
-        if (await exists(unpackagedUri) && await unpackagedMatchesCurrent()) {
+        if (await existsOrThrow(unpackagedUri) && await unpackagedMatchesCurrent()) {
           // An external initializer published the identical immutable manifest.
         } else {
           throw error;
@@ -1273,7 +1309,7 @@ async function initializeSnlDocSkeleton(
     const gitkeep = ENCODER.encode('');
     for (const directory of [entryDir, macroDir, librariesDir]) {
       const placeholder = vscode.Uri.joinPath(directory, '.gitkeep');
-      if (!(await exists(placeholder))) await fsApi.writeFile(placeholder, gitkeep);
+      if (!(await existsOrThrow(placeholder))) await fsApi.writeFile(placeholder, gitkeep);
     }
 
     const assertEmptyInitializationTopology = async (): Promise<void> => {
@@ -1315,39 +1351,32 @@ async function initializeSnlDocSkeleton(
     };
     const configBytes = jsonBytes(config);
     const configTemporary = vscode.Uri.joinPath(root, `.config.init-${process.pid}-${Date.now()}.tmp`);
-    let configPublished = false;
+    let configPublicationAttempted = false;
     try {
       await fsApi.writeFile(configTemporary, configBytes);
       // Rebind publication to the exact empty entity topology after every
       // initializer-owned repair/write and immediately before the rename.
       await assertEmptyInitializationTopology();
+      // A rejected provider promise does not prove publication did not occur.
+      configPublicationAttempted = true;
       await fsApi.rename(configTemporary, configTarget, { overwrite: false });
-      configPublished = true;
       // The rename itself is an external race seam. Validate again before
       // reporting success so a concurrently published entity cannot become
       // hidden behind an empty authoritative Package membership list.
       await assertEmptyInitializationTopology();
     } catch (error) {
       try {
-        if (await exists(configTemporary)) {
+        if (await existsOrThrow(configTemporary)) {
           await fsApi.delete(configTemporary, { recursive: false, useTrash: false });
         }
       } catch {
         // Preserve the original initialization failure; retry residue is safe.
       }
-      if (configPublished) {
-        try {
-          const current = await fsApi.readFile(configTarget);
-          const stillInitializerBytes = current.length === configBytes.length &&
-            current.every((byte, index) => byte === configBytes[index]);
-          if (stillInitializerBytes) {
-            // Expected-byte deletion is the filesystem API's CAS boundary:
-            // never remove config content written by another participant.
-            await fsApi.delete(configTarget, { recursive: false, useTrash: false });
-          }
-        } catch {
-          // Preserve foreign replacement/deletion and the original failure.
-        }
+      if (configPublicationAttempted) {
+        // Never read-compare-unlink the canonical path: a foreign replacement
+        // can arrive after any read/stat/lock check. Preserve bytes on every
+        // provider and report the original failure as the recovery error cause.
+        throw new SnlInitializationRecoveryRequiredError(configTarget, error);
       }
       throw error;
     }

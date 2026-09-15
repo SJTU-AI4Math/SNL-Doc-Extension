@@ -146,7 +146,7 @@ describe('fresh initialization membership publication', () => {
     expect(state.renames.some(([, to]) => to === configPath)).toBe(false);
   });
 
-  it('rolls back only its config when a valid Entry is introduced during config rename', async () => {
+  it('retains config for explicit recovery when a valid Entry is introduced during config rename', async () => {
     state.onRename = (_from, to) => {
       if (to === configPath) putJson(concurrentEntryPath, validConcurrentEntry);
     };
@@ -155,8 +155,8 @@ describe('fresh initialization membership publication', () => {
     await expect(initSnlDoc(root)).rejects.toThrow(/Cannot initialize|topology|Entry/i);
 
     expect(getJson(concurrentEntryPath)).toEqual(validConcurrentEntry);
-    expect(state.files.has(configPath)).toBe(false);
-    expect(state.deletes).toContain(configPath);
+    expect(state.files.has(configPath)).toBe(true);
+    expect(state.deletes).not.toContain(configPath);
   });
 
   it('upgrades exact markerless _unpackaged retry residue and publishes config 0.1.0', async () => {

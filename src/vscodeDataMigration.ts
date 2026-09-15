@@ -37,8 +37,10 @@ async function exists(uri: vscode.Uri): Promise<boolean> {
   try {
     await vscode.workspace.fs.stat(uri);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    const code = (error as { code?: unknown } | null)?.code;
+    if (code === 'ENOENT' || code === 'FileNotFound') return false;
+    throw error;
   }
 }
 

@@ -367,6 +367,35 @@ describe('CreateEntryApp create → edit flip', () => {
     expect(updateButton.disabled).toBe(false);
   });
 
+  it('selects a newly created Package for the pending create Entry and preserves it across context refresh', async () => {
+    const view = render(<CreateEntryApp />);
+    send(createContext());
+
+    openPackageCreator(view);
+    fireEvent.change(view.getByLabelText('New Entry Package ID'), { target: { value: 'Algebra' } });
+    fireEvent.click(view.getByRole('button', { name: 'Add Entry Package' }));
+    const request = posted.findLast((message) => message?.type === 'createPackage');
+
+    act(() => send({
+      type: 'packageCreated', packageId: 'Algebra', requestId: request.requestId
+    }));
+    const packageField = view.getByLabelText('Entry Package') as HTMLInputElement;
+    await waitFor(() => expect(packageField.value).toBe('Algebra'));
+
+    act(() => send({
+      ...(createContext() as Record<string, unknown>),
+      entryPackages: ['_unpackaged', 'Logic', 'Algebra']
+    }));
+    await waitFor(() => expect(packageField.value).toBe('Algebra'));
+
+    fireEvent.input(view.getByLabelText('Title'), { target: { value: 'Packaged Entry' } });
+    const idInput = view.container.querySelector<HTMLInputElement>('#snl-entry-id')!;
+    fireEvent.input(idInput, { target: { value: 'packaged-entry' } });
+    fireEvent.click(view.getByRole('button', { name: 'Create Entry' }));
+    await waitFor(() => expect(posted.findLast((message) => message?.type === 'create')?.entry.package)
+      .toBe('Algebra'));
+  });
+
   it('keeps the Package creator open with an actionable host error', async () => {
     const view = render(<CreateEntryApp />);
     send(editContext({

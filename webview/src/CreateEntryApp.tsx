@@ -929,6 +929,7 @@ export function CreateEntryApp(): React.ReactElement {
   const [existingIds, setExistingIds] = useState<EntryOption[]>([]);
   const [entryPackages, setEntryPackages] = useState<string[]>(['_unpackaged']);
   const [selectedPackage, setSelectedPackage] = useState<string>('_unpackaged');
+  const packageSelectionDirtyRef = useRef(false);
   const [showPackageCreator, setShowPackageCreator] = useState(false);
   const [newPackageId, setNewPackageId] = useState('');
   const [packageCreating, setPackageCreating] = useState(false);
@@ -1175,6 +1176,7 @@ export function CreateEntryApp(): React.ReactElement {
           setStatus({ kind: 'idle' });
           setTargetState('found');
           setTitle('');
+          packageSelectionDirtyRef.current = false;
           setSelectedPackage('_unpackaged');
           activePackageRequestRef.current = null;
           setPackageCreating(false);
@@ -1227,11 +1229,14 @@ export function CreateEntryApp(): React.ReactElement {
             setShowPackageCreator(true);
             setPackageCreateError('');
           }
-          setSelectedPackage(
-            msg.mode === 'edit'
+          // An acknowledged inline creation owns the pending Entry selection.
+          // Watcher refreshes must not restore the host's earlier create default.
+          if (msg.mode === 'edit' || !packageSelectionDirtyRef.current) {
+            packageSelectionDirtyRef.current = false;
+            setSelectedPackage(msg.mode === 'edit'
               ? (msg.existing?.package || '_unpackaged')
-              : (msg.selectedPackage || '_unpackaged')
-          );
+              : (msg.selectedPackage || '_unpackaged'));
+          }
           if (msg.mode === 'edit') {
             const incomingId = msg.id ?? msg.existing?.id ?? '';
             // Cat 2026-07-27: the context that immediately follows our own
@@ -1471,6 +1476,11 @@ export function CreateEntryApp(): React.ReactElement {
           setEntryPackages((previous) =>
             previous.includes(packageId) ? previous : [...previous, packageId]
           );
+          if (editingIdRef.current === '') {
+            packageSelectionDirtyRef.current = true;
+            setSelectedPackage(packageId);
+            markFormDirty(true);
+          }
           setPackageCreating(false);
           setPackageCreateError('');
           setNewPackageId('');
@@ -1916,6 +1926,7 @@ export function CreateEntryApp(): React.ReactElement {
     setActiveFormat('snl');
     setSnlMode('text');
     setStatus({ kind: 'idle' });
+    packageSelectionDirtyRef.current = false;
     setSelectedPackage('_unpackaged');
     setSelectedKind(kinds.length > 0 ? kinds[0].id : '');
   }

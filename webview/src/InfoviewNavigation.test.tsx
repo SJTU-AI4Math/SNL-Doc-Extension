@@ -55,6 +55,23 @@ describe('Infoview navigation', () => {
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'ready' });
   });
 
+  it('localizes a failed Library title and back action while preserving the host diagnostic and retry target', () => {
+    document.documentElement.lang = 'zh-CN';
+    const view = render(<App />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'libraryEntriesError', slug: 'analysis', message: 'AUTHOR-DIAGNOSTIC'
+    } })));
+    expect(view.getByRole('heading', { name: '文档库不可用：analysis' })).toBeTruthy();
+    expect(view.getByRole('alert').textContent).toBe('AUTHOR-DIAGNOSTIC');
+    api.postMessage.mockClear();
+    fireEvent.click(view.getByRole('button', { name: '重试' }));
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'selectLibrary', slug: 'analysis' });
+    api.postMessage.mockClear();
+    fireEvent.click(view.getByRole('button', { name: '← 返回文档库列表' }));
+    expect(api.postMessage).toHaveBeenCalledTimes(1);
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'back' });
+  });
+
   it('uses the explicit back transition from a directly opened Library', () => {
     const view = render(<App />);
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'ready' });

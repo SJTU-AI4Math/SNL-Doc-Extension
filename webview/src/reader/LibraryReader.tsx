@@ -46,7 +46,7 @@ const MESSAGES = defineUiMessages('infoview', {
   editLibrary: 'Edit this Library', editLibraryTitle: 'Open the editor for library "{slug}"',
   emptyLibrary: 'This library has no entries yet. Add some via the Dashboard.',
   placeholder: 'placeholder node · {nodeId}', expand: 'Expand', collapse: 'Collapse',
-  librariesLoadError: 'Could not load libraries: {message}', unknownError: 'Unknown error', retry: 'Retry',
+  librariesLoadError: 'Could not load libraries: {message}', unknownError: 'Unknown error', retry: 'Retry', backLibraries: '← Back to libraries',
   expandChildren: { arg: 'count', one: 'Expand {count} child', other: 'Expand {count} children' },
   collapseChildren: { arg: 'count', one: 'Collapse {count} child', other: 'Collapse {count} children' },
   graphWarnings: { arg: 'count', one: '⚠️ {count} warning in graph.json', other: '⚠️ {count} warnings in graph.json' },
@@ -63,7 +63,7 @@ const MESSAGES = defineUiMessages('infoview', {
   exportTitle: '将文档库“{slug}”导出为静态 HTML 文档', editLibrary: '编辑此文档库',
   editLibraryTitle: '打开文档库“{slug}”的编辑器', emptyLibrary: '此文档库尚无条目。请通过仪表板添加。',
   placeholder: '占位节点 · {nodeId}', expand: '展开', collapse: '折叠',
-  librariesLoadError: '无法加载文档库：{message}', unknownError: '未知错误', retry: '重试',
+  librariesLoadError: '无法加载文档库：{message}', unknownError: '未知错误', retry: '重试', backLibraries: '← 返回文档库列表',
   expandChildren: '展开 {count} 个子节点', collapseChildren: '折叠 {count} 个子节点',
   graphWarnings: '⚠️ graph.json 中有 {count} 条警告', moreWarnings: '……另有 {count} 条'
 });
@@ -154,7 +154,7 @@ function LibraryErrorLayer({ slug, message, ctx }: { slug: string; message: stri
   const t = useUiMessages(MESSAGES);
   return <><TopBar title={t('libraryUnavailable', { slug })} />
     <div role="alert">{message}</div>
-    <Button onClick={ctx.goBack}>{t('back')}</Button>
+    <Button onClick={ctx.goBack}>{t('backLibraries')}</Button>
     <Button onClick={() => ctx.postMessage({ type: 'selectLibrary', slug })}>{t('retry')}</Button>
   </>;
 }
@@ -300,6 +300,7 @@ export function LibraryLayer({
   description,
   outline,
   warnings,
+  navigationError,
   ctx
 }: {
   slug: string;
@@ -307,6 +308,7 @@ export function LibraryLayer({
   description?: string;
   outline: OutlineNode[];
   warnings: string[];
+  navigationError?: string;
   ctx: RenderCtx;
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
@@ -397,6 +399,7 @@ export function LibraryLayer({
           </>
         }
       />
+      {navigationError ? <p role="alert">{navigationError}</p> : null}
       <StructuralTreeControls
         {...collapseCapabilities}
         onExpandAll={() => setCollapsed(setAllStructuralNodes(descriptors, false))}

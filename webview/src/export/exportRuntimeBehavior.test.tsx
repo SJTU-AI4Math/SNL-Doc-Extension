@@ -95,6 +95,36 @@ describe('exported BrowserReader uses native Entry/Basics behavior', () => {
     navigate('#/library', 'popstate'); expect(screen.getByText('Frozen Library')).toBeDefined();
   });
 
+  it('keeps encoded occurrence routes distinct and reports unknown or malformed nodes before returning home', () => {
+    const value = snapshot();
+    const alpha = entry('entry-alpha');
+    const beta = entry('entry-beta');
+    value.entries = [alpha, beta];
+    value.library.outline = [node('node alpha', alpha), node('node/beta', beta)];
+    mountReader(value, '#/node/node%20alpha');
+    expect(location.hash).toBe('#/node/node%20alpha');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText('Body of entry-alpha')).toBeTruthy();
+
+    navigate('#/node/node%2Fbeta');
+    expect(location.hash).toBe('#/node/node%2Fbeta');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText('Body of entry-beta')).toBeTruthy();
+
+    navigate('#/node/missing');
+    expect(screen.getByRole('alert').textContent).toBe('This destination is unavailable in this frozen export.');
+    expect(screen.getByText('Frozen Library')).toBeTruthy();
+
+    navigate('#/node/%E0%A4%A');
+    expect(screen.getByRole('alert').textContent).toBe('This destination is unavailable in this frozen export.');
+    navigate('#/node/node%20alpha', 'popstate');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText('Body of entry-alpha')).toBeTruthy();
+    navigate('#/library', 'popstate');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText('Frozen Library')).toBeTruthy();
+  });
+
   it('Ctrl-clicks source references into the Entry reader rather than navigating a legacy DOM outlet', async () => {
     const view = mountReader(); const anchor = await waitFor(() => semantic(view.container, 'entry-a'));
     fireEvent.click(anchor, { ctrlKey: true });

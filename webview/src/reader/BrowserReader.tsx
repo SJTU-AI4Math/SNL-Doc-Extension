@@ -72,7 +72,22 @@ export function BrowserReader({ snapshot, hostContext }: { snapshot: FrozenReade
   const graphLayoutMemory = useMemo(() => new GraphLayoutMemoryCache(), [snapshot]);
   const { route: currentRoute, session: searchSession } = useReaderLocation();
   const librarySlug = hostContext?.librarySlug ?? (currentRoute.kind === 'workspace' ? undefined : currentRoute.librarySlug);
-  const route = readerRouteInLibrary(currentRoute, librarySlug);
+  const scopedRoute = readerRouteInLibrary(currentRoute, librarySlug);
+  const requestedNodeId = scopedRoute.kind === 'node' ? scopedRoute.nodeId : undefined;
+  const occurrenceExists = useMemo(() => {
+    if (requestedNodeId === undefined) return true;
+    // Only node routes need this lookup. Avoid a new recursive stack limit or
+    // rescanning the outline when unrelated reader state changes.
+    const pending: FrozenOutlineNode[][] = [snapshot.library.outline];
+    while (pending.length) {
+      for (const node of pending.pop()!) {
+        if (node.nodeId === requestedNodeId) return true;
+        if (node.children.length) pending.push(node.children);
+      }
+    }
+    return false;
+  }, [snapshot.library.outline, requestedNodeId]);
+  const route = scopedRoute;
   const routeHash = (destination: import('./readerRoute').ReaderRoute): string => encodeReaderRoute(readerRouteInLibrary(destination, librarySlug));
   const libraryHash = routeHash({ kind: 'library' });
 
@@ -210,9 +225,11 @@ export function BrowserReader({ snapshot, hostContext }: { snapshot: FrozenReade
         kindPalette={kindPalette} localDetails={details} markdownImageUrlTransform={markdownImageUrlTransform}>
         <RoutePopoverBoundary visible={route.kind === 'library' || route.kind === 'node'} />
         <main style={READER_STYLE}>
-          <LibraryLayer {...snapshot.library} ctx={{ postMessage, goBack: hostContext?.onWorkspace ?? (() => navigate(libraryHash)), entryPool: entries, cachedEntryMetrics, globalPageRank,
+          <LibraryLayer {...snapshot.library}
+            navigationError={route.kind === 'node' && !occurrenceExists ? hostContext?.unavailable ?? t('unavailable') : undefined}
+            ctx={{ postMessage, goBack: hostContext?.onWorkspace ?? (() => navigate(libraryHash)), entryPool: entries, cachedEntryMetrics, globalPageRank,
             entryPackages: snapshot.entryPackages, userMacros, kindPalette, markdownImageUrlTransform, exportHtml: () => {}, outlineRef,
-            activeNodeId: route.kind === 'node' ? route.nodeId : undefined }} />
+            activeNodeId: route.kind === 'node' && occurrenceExists ? route.nodeId : undefined }} />
         </main>
       </HoverPopoverProvider>
     </div>

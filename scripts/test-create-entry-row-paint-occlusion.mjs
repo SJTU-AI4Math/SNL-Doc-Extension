@@ -9,7 +9,7 @@ import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const bundleDir = resolve(root, 'media/webview');
+const bundleDir = resolve(process.env.SNL_CREATE_ENTRY_PAINT_OUT_DIR ?? resolve(root, 'media/webview'));
 const viteBin = resolve(root, 'node_modules/vite/bin/vite.js');
 const entries = ['createLibrary', 'createEntry'];
 const bundleFiles = entries.flatMap((entry) => [`${entry}.js`, `${entry}.css`]);
@@ -28,7 +28,11 @@ for (const entry of entries) {
   const buildStartedAt = Date.now();
   const build = spawnSync(
     process.execPath,
-    [viteBin, 'build', '--config', resolve(root, 'webview/vite.config.ts')],
+    // Runner avoids Vite's temporary config write in shared node_modules.
+    // Preserve the canonical config's CommonJS-style directory binding.
+    ['--input-type=module', '-e',
+      `globalThis.__dirname = ${JSON.stringify(resolve(root, 'webview'))}; process.argv = [process.execPath, ...process.argv.slice(1)]; await import(${JSON.stringify(viteBin)});`,
+      viteBin, 'build', '--config', resolve(root, 'webview/vite.config.ts'), '--outDir', bundleDir, '--configLoader', 'runner'],
     {
       cwd: root,
       env: { ...process.env, SNL_WEBVIEW_ENTRY: entry },
@@ -136,6 +140,8 @@ ${visiblePaintMutation}
     ? { ...baseFixture, mode: 'create', id: undefined, seedId: 'entry-id', existing: null }
     : baseFixture;
   window.__snlPosted = [];
+  window.__snlState = undefined;
+  window.__snlStateWrites = [];
   window.acquireVsCodeApi = () => ({
     postMessage(message) {
       window.__snlPosted.push(message);
@@ -143,8 +149,11 @@ ${visiblePaintMutation}
         window.dispatchEvent(new MessageEvent('message', { data: window.__snlFixture }));
       }
     },
-    getState() { return undefined; },
-    setState() {}
+    getState() { return window.__snlState; },
+    setState(state) {
+      window.__snlState = structuredClone(state);
+      window.__snlStateWrites.push(structuredClone(state));
+    }
   });
 </script>
 </head>
@@ -388,6 +397,35 @@ try {
   })()`);
   await waitFor(`document.querySelectorAll('.snl-inductive-editor .snl-tree-row').length >= 3`);
 
+  // CreateEntryApp passes formDirty to usePersistedDraft's enabled argument.
+  // Read the real producer's persisted envelope after effects settle, not DOM copy.
+  await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  const styleCleanBefore = await evaluate(`({
+    draft: window.__snlState?.['createEntry:edit:create-entry-paint-probe'] ?? null,
+    writes: window.__snlStateWrites.length
+  })`);
+  assert(styleCleanBefore.draft === null && styleCleanBefore.writes === 0,
+    'Style clean precondition: the first native Style input must start without a dirty draft', styleCleanBefore);
+  await waitFor(`Boolean(document.querySelector('.snl-tree-style-select:not(:disabled)')?.querySelector('option[value="compact"]'))`);
+  const firstStyleSelection = await evaluate(`(() => {
+    const select=document.querySelector('.snl-tree-style-select:not(:disabled)');
+    const setValue=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;
+    setValue.call(select,'compact');
+    select.dispatchEvent(new Event('input',{bubbles:true}));
+    select.dispatchEvent(new Event('change',{bubbles:true}));
+    return true;
+  })()`);
+  assert(firstStyleSelection, 'production Style select must accept the first native input/change sequence', firstStyleSelection);
+  await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+  const firstStyleResult = await evaluate(`(() => { const select=document.querySelector('.snl-tree-style-select:not(:disabled)'); return {value:select.value, selected:select.selectedOptions[0]?.value}; })()`);
+  assert(firstStyleResult.value === 'compact' && firstStyleResult.selected === 'compact',
+    'the first clean-to-dirty Style selection must survive the ancestor dirty render', firstStyleResult);
+
+  await waitFor(`Boolean(window.__snlState?.['createEntry:edit:create-entry-paint-probe'])`);
+  const styleDirtyAfter = await evaluate(`window.__snlState['createEntry:edit:create-entry-paint-probe']`);
+  assert(styleDirtyAfter.content.snl.includes('Root[compact]'),
+    'first Style input must publish compact in the real dirty draft', styleDirtyAfter);
+
   const selectWholeDelimiterInput = async () => evaluate(`(() => {
     const input=document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1];
     if (!input) return false;
@@ -458,21 +496,6 @@ try {
   const rearmEvidence = await evaluate(`(() => { const input=document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1]; return {value:input.value,start:input.selectionStart,suggestions:Boolean(input.closest('[data-macro-id-control]').querySelector('[role="listbox"]'))}; })()`);
   assert(rearmEvidence.value === 'Fo' && rearmEvidence.suggestions,
     'removing all delimiters must let the next real input re-arm autocomplete', rearmEvidence);
-
-  await waitFor(`Boolean(document.querySelector('.snl-tree-style-select:not(:disabled)')?.querySelector('option[value="compact"]'))`);
-  const firstStyleSelection = await evaluate(`(() => {
-    const select=document.querySelector('.snl-tree-style-select:not(:disabled)');
-    const setValue=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;
-    setValue.call(select,'compact');
-    select.dispatchEvent(new Event('input',{bubbles:true}));
-    select.dispatchEvent(new Event('change',{bubbles:true}));
-    return true;
-  })()`);
-  assert(firstStyleSelection, 'production Style select must accept the first native input/change sequence', firstStyleSelection);
-  await new Promise((resolveWait) => setTimeout(resolveWait, 20));
-  const firstStyleResult = await evaluate(`(() => { const select=document.querySelector('.snl-tree-style-select:not(:disabled)'); return {value:select.value, selected:select.selectedOptions[0]?.value}; })()`);
-  assert(firstStyleResult.value === 'compact' && firstStyleResult.selected === 'compact',
-    'the first clean-to-dirty Style selection must survive the ancestor dirty render', firstStyleResult);
 
   const schemes = ['light', 'dark', 'high-contrast-light', 'high-contrast'];
   const matrix = [];
@@ -666,7 +689,7 @@ try {
         backtick: backtickEvidence,
         rearm: rearmEvidence
       },
-      caret: caretResult, snoogl: snooglResult, firstStyle: firstStyleResult, imeDuring, imeAfter, entryIdCaret
+      caret: caretResult, snoogl: snooglResult, firstStyle: firstStyleResult, styleCleanBefore, styleDirtyAfter, imeDuring, imeAfter, entryIdCaret
     },
     artifactBuild
   }, null, 2));

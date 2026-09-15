@@ -480,7 +480,7 @@
     "build:webview": "node scripts/build-webviews.mjs",
     "dev:webview": "vite --config webview/vite.config.ts",
     "smoke": "npm run compile && node scripts/smoke.mjs",
-    "test": "node scripts/prepare-test-artifacts.mjs && vitest run",
+    "test": "node scripts/prepare-test-artifacts.mjs && vitest run --pool=forks --maxWorkers=1 --minWorkers=1",
     "verify:ui-spec": "npm run compile --silent && node out/uiSpecVerifier.js",
     "test:metrics": "vitest run webview/src/components/EntryMetrics.test.ts --environment node",
     "test:entry-overflow": "node scripts/test-entry-overflow-geometry.mjs",

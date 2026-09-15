@@ -51,7 +51,8 @@ describe('UI specification workspace verifier', () => {
 
   it('accepts the committed specification workspace', async () => {
     await expect(verifyUiSpecWorkspace(workspace)).resolves.toMatchObject({
-      dataVersion: '0.1.0', entries: 400, macros: 208, usedMacros: 208,
+      // Includes the restored research.panel-latency.2026-09-09 historical Entry.
+      dataVersion: '0.1.0', entries: 401, macros: 208, usedMacros: 208,
     });
   });
 

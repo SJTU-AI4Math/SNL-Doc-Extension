@@ -74,7 +74,7 @@ const LIBRARY_MESSAGES = defineUiMessages(
     noEntries: 'No entries yet — click "Add root entry" below.', addRootEntry: '+ Add root entry', untitled: '(untitled)',
     openEntry: 'Open Edit Entry: {id}\nkind: {kind}', pendingHelp: 'pending entry — "{id}" not in the pool yet (finish it in the Create Entry panel)',
     noEntryId: 'no entryId assigned (node {id})', pending: '⚠ pending', counterOverride: "Counter override for this entry (default = kind's default counter name)",
-    defaultCounter: '<default>', entryId: 'Entry id', copyEntryId: 'Copy Entry ID',
+    defaultCounter: '<default>', entryId: 'Entry id', copyEntryId: 'Copy Entry ID', lookingUpEntry: 'Looking up Entry…',
     entryPlaceholder: 'Search existing entry, or type a new id and click Create', counter: 'Counter', reference: 'Reference', create: 'Create',
     referenceStatus: 'Reference: "{title}" — kind: {kind}', noMatchStatus: 'No entry with id "{id}" — Create will add a new one',
     emptyStatus: 'Empty — Create will open the Create Entry panel', cancel: 'Cancel',
@@ -101,7 +101,7 @@ const LIBRARY_MESSAGES = defineUiMessages(
     addRootEntry: '+ 添加根条目', untitled: '（无标题）', openEntry: '打开“编辑条目”：{id}\n类型：{kind}',
     pendingHelp: '待创建条目 — “{id}”尚未加入条目池（请在“创建条目”面板中完成创建）', noEntryId: '未指定条目 ID（节点 {id}）',
     pending: '⚠ 待创建', counterOverride: '覆盖此条目的计数器（默认值为条目类型的默认计数器名称）', defaultCounter: '<默认>',
-    entryId: '条目 ID', copyEntryId: '复制条目 ID',
+    entryId: '条目 ID', copyEntryId: '复制条目 ID', lookingUpEntry: '正在查找条目……',
     entryPlaceholder: '搜索现有条目，或输入新 ID 后点击“创建”',
     counter: '计数器', reference: '引用', create: '创建', referenceStatus: '引用：“{title}” — 类型：{kind}',
     noMatchStatus: '没有 ID 为“{id}”的条目 — “创建”将添加新条目', emptyStatus: '留空 — “创建”将打开“创建条目”面板', cancel: '取消',
@@ -2165,7 +2165,7 @@ function AddNodeForm({
             color: statusColor
           }}
         >
-          {lookupBlocked ? (lookup.message ?? 'Looking up Entry…') : mode === 'matched'
+          {lookupBlocked ? (lookup.message ?? t('lookingUpEntry')) : mode === 'matched'
             ? t('referenceStatus', {
                 title: referencedEntry
                   ? resolve_localized_string(referencedEntry.title, contentLanguage) || t('untitled')

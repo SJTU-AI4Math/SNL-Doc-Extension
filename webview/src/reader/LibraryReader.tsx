@@ -32,7 +32,7 @@ use_content_language
 import { useReaderCapabilities } from './ReaderCapabilities';
 
 const MESSAGES = defineUiMessages('infoview', {
-  title: 'SNL Infoview', loadingLibraries: 'Loading libraries…',
+  title: 'SNL Infoview', loadingLibraries: 'Loading libraries…', libraryUnavailable: 'Library unavailable: {slug}',
   libraries: { arg: 'count', one: '{count} library', other: '{count} libraries' },
   entries: { arg: 'count', one: '{count} entry', other: '{count} entries' },
   frozenGraphTitle: 'Open the relationship graph for this frozen export',
@@ -52,7 +52,7 @@ const MESSAGES = defineUiMessages('infoview', {
   graphWarnings: { arg: 'count', one: '⚠️ {count} warning in graph.json', other: '⚠️ {count} warnings in graph.json' },
   moreWarnings: '… {count} more'
 }, {
-  title: 'SNL 信息视图', loadingLibraries: '正在加载文档库……',
+  title: 'SNL 信息视图', loadingLibraries: '正在加载文档库……', libraryUnavailable: '文档库不可用：{slug}',
   libraries: '{count} 个文档库', entries: '{count} 个条目',
   viewGraph: '查看关系图', viewPoolGraph: '打开整个条目池的关系图',
   editDashboard: '在仪表板中编辑', editDashboardTitle: '打开仪表板管理界面',
@@ -152,7 +152,7 @@ export function renderCurrentView(view: View, ctx: RenderCtx): React.ReactElemen
 
 function LibraryErrorLayer({ slug, message, ctx }: { slug: string; message: string; ctx: RenderCtx }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
-  return <><TopBar title={`Library unavailable: ${slug}`} />
+  return <><TopBar title={t('libraryUnavailable', { slug })} />
     <div role="alert">{message}</div>
     <Button onClick={ctx.goBack}>{t('back')}</Button>
     <Button onClick={() => ctx.postMessage({ type: 'selectLibrary', slug })}>{t('retry')}</Button>

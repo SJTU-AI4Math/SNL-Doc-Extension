@@ -2,12 +2,37 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { CreateLibraryApp } from './CreateLibraryApp';
+import { apply_preferences_snapshot } from './runtime/preferencesRuntime';
 const postMessage=vi.fn();
-beforeEach(()=>{postMessage.mockClear();(globalThis as any).__snlApi={postMessage,getState:()=>undefined,setState:()=>{}};});
-afterEach(()=>{cleanup();delete (globalThis as any).__snlApi;});
+
+let localeRevision = 0;
+function setLocale(language: 'en' | 'zh-CN') {
+  act(() => {
+    expect(apply_preferences_snapshot({
+      type: 'snl.preferences/snapshot', generation: 'library-i18n-test', revision: ++localeRevision,
+      preferences: { language, language_preference: language, color_scheme: 'dark', motion: 'full' }
+    })).toBe(true);
+  });
+}
+
+beforeEach(()=>{setLocale('en');postMessage.mockClear();(globalThis as any).__snlApi={postMessage,getState:()=>undefined,setState:()=>{}};});
+afterEach(()=>{cleanup();setLocale('en');delete (globalThis as any).__snlApi;});
 const send=async(data:unknown)=>act(async()=>{window.dispatchEvent(new MessageEvent('message',{data}));});
 async function open(){render(<CreateLibraryApp/>);await send({type:'context',mode:'edit',targetState:'found',slug:'notes',libraryRevision:'m1',existing:{slug:'notes',title:'Notes'}});await send({type:'graph',nodes:[],relationships:[],entries:[],kinds:[],warnings:[],graphRevision:'g1'});await send({type:'countersLoaded',counters:[],countersRevision:'c1'});fireEvent.click(await screen.findByRole('button',{name:'+ Add root entry'}));return screen.getByPlaceholderText('Search existing entry, or type a new id and click Create');}
 async function query(input:HTMLElement,id:string){fireEvent.change(input,{target:{value:id}});await waitFor(()=>expect(postMessage.mock.calls.some(([m])=>m.type==='lookupEntry'&&m.entryId===id)).toBe(true));return postMessage.mock.calls.filter(([m])=>m.type==='lookupEntry').at(-1)![0];}
+it('localizes the pending lookup live while preserving request identity and the create guard', async () => {
+ const request = await query(await open(), 'Off.graph');
+ expect(screen.getByText('Looking up Entry…')).toBeTruthy();
+ setLocale('zh-CN');
+ expect(await screen.findByText('正在查找条目……')).toBeTruthy();
+ const create = screen.getByRole('button', { name: '创建' });
+ expect(create.hasAttribute('disabled')).toBe(true);
+ fireEvent.click(create);
+ expect(postMessage.mock.calls.some(([m]) => m.type === 'openCreateEntry')).toBe(false);
+ expect(postMessage.mock.calls.filter(([m]) => m.type === 'lookupEntry').at(-1)![0]).toEqual(request);
+ setLocale('en');
+ expect(await screen.findByText('Looking up Entry…')).toBeTruthy();
+});
 it('off-graph hit stages one reference, pending cannot create, complete save retains CAS',async()=>{
  const input=await open();const request=await query(input,'Off.graph');
  fireEvent.click(screen.getByRole('button',{name:'Create'}));expect(postMessage.mock.calls.some(([m])=>m.type==='openCreateEntry')).toBe(false);

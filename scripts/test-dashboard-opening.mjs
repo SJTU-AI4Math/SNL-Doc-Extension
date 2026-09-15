@@ -56,6 +56,7 @@ try{
   const check=async(name,fn)=>{await fn();run.cases.push(name);};
   try{
    await page.goto(`http://127.0.0.1:${server.address().port}/?theme=${theme}`);
+   run.url=page.url();
    await page.waitForFunction(()=>window.__posted.some(m=>m.type==='ready'));
    await check('independent-navigation-before-catalog',async()=>{
     await click('View Graph','openInfoviewGraph');await click('Open Infoview →','openInfoview');
@@ -119,6 +120,6 @@ try{
   }catch(e){run.ok=false;run.failure=String(e);await page.screenshot({path:resolve(out,`${theme}-failure.png`)});throw e;}
   finally{await page.close();writeFileSync(resolve(out,'results.json'),JSON.stringify(results,null,2));}
  }
-}finally{await browser.close();await new Promise(r=>server.close(r));writeFileSync(resolve(out,'results.json'),JSON.stringify(results,null,2));}
+}finally{await browser.close();results.browserClosed=true;await new Promise(r=>server.close(r));results.serverClosed=true;writeFileSync(resolve(out,'results.json'),JSON.stringify(results,null,2));}
 console.log(JSON.stringify(results,null,2));
 assert(results.runs.length===2&&results.runs.every(r=>r.ok),'Dashboard browser acceptance failed');

@@ -27,7 +27,6 @@ import type { ThemedKindColoring } from '../../src/kindColoring';
 import { analyzeLatexTemplatePlaceholders } from '../../src/templatePlaceholders';
 import { flushSync } from 'react-dom';
 import 'katex/dist/katex.min.css';
-import '@sjtu-ai4math/snl-basics/style.css';
 import './entry-editor/canvas.css';
 import {
   tryParseSnlSyntaxTree,

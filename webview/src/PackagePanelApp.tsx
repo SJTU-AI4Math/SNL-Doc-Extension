@@ -16,7 +16,6 @@ import type { ThemedKindColoring } from '../../src/kindColoring';
 import { KindPreview } from './components/KindPreview';
 import { useReaderCapabilities } from './reader/ReaderCapabilities';
 import 'katex/dist/katex.min.css';
-import '@sjtu-ai4math/snl-basics/style.css';
 import './create-macro.css';
 import {
   type Localized,

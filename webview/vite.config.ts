@@ -77,6 +77,12 @@ export default defineConfig({
           if (name.endsWith('.css')) {
             return `${entry.name}.css`;
           }
+          // Independent entry builds share immutable content-hashed fonts.
+          // Keep CSS and other assets entry-owned, without duplicating every
+          // KaTeX/Noto face once per mathematical panel.
+          if (/\.(?:woff2|woff|ttf)$/.test(name)) {
+            return '[name]-[hash][extname]';
+          }
           return `${entry.name}-[name]-[hash][extname]`;
         }
       }

@@ -2,9 +2,11 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync
 } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -131,6 +133,41 @@ describe('webview bundle leanness', () => {
       .map((name) => ({ name, bytes: bundle(name)!.length }))
       .filter((entry) => entry.bytes > 300_000);
     expect(tooBig).toEqual([]);
+  });
+
+  it('loads root SNL CSS exactly once through the public Entry stylesheet', () => {
+    const entryRender = readFileSync(resolve(__dirname, '..', 'webview/src/render/EntryRender.tsx'), 'utf8');
+    const createEntry = readFileSync(resolve(__dirname, '..', 'webview/src/CreateEntryApp.tsx'), 'utf8');
+    const packagePanel = readFileSync(resolve(__dirname, '..', 'webview/src/packagePanel.tsx'), 'utf8');
+    const packagePanelApp = readFileSync(resolve(__dirname, '..', 'webview/src/PackagePanelApp.tsx'), 'utf8');
+    expect(entryRender).toContain("import '@sjtu-ai4math/snl-basics/entry/style.css';");
+    expect(entryRender).not.toContain("import '@sjtu-ai4math/snl-basics/style.css';");
+    expect(createEntry).not.toContain("import '@sjtu-ai4math/snl-basics/style.css';");
+    expect(packagePanel).toContain("import '@sjtu-ai4math/snl-basics/style.css';");
+    expect(packagePanelApp).not.toContain("import '@sjtu-ai4math/snl-basics/style.css';");
+  });
+
+  it.skipIf(skip)('deduplicates bundled document fonts across math webviews', () => {
+    const fontFiles = readdirSync(MEDIA).filter((name) => /\.(?:woff2|woff|ttf)$/.test(name));
+    const fontHashes = fontFiles.map((name) =>
+      createHash('sha256').update(readFileSync(resolve(MEDIA, name))).digest('hex')
+    );
+    expect(new Set(fontHashes).size).toBe(fontFiles.length);
+    const cjkFonts = fontFiles.filter((name) => /^noto-serif-sc-.+\.woff2$/.test(name));
+    // Keep all Unicode-range subsets as shared sidecars. Inlining even the
+    // smallest faces would duplicate base64 bytes across every math webview.
+    expect(cjkFonts).toHaveLength(101);
+    for (const name of RENDERS_MATH) {
+      const cssPath = resolve(MEDIA, `${name}.css`);
+      const css = readFileSync(cssPath, 'utf8');
+      const faceCount = css.match(/font-family:SNL Noto Serif SC/g)?.length ?? 0;
+      expect(faceCount).toBe(101);
+      expect(css).toContain('url(./noto-serif-sc-');
+      expect(css).toContain('url(./KaTeX_');
+      expect(css).not.toContain('data:font/');
+      expect(css).not.toContain(`url(./${name}-noto-serif-sc-`);
+      expect(css).not.toContain(`url(./${name}-KaTeX_`);
+    }
   });
 
   it('still ships KaTeX where math is actually rendered', () => {

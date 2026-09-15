@@ -36,8 +36,9 @@ try{
  browser=await chromium.launch({executablePath:process.env.SNL_CHROMIUM_PATH,headless:true,args:['--no-sandbox','--num-raster-threads=1']});
  const page=await browser.newPage({viewport:{width:1280,height:900}});page.setDefaultTimeout(10000);page.on('pageerror',e=>result.errors.push(String(e)));
  const base=`http://127.0.0.1:${server.address().port}`;
+ result.base=base;result.bundleRoot=resolve(root,'author-local');
  const change=()=>{revision++;for(const s of streams)s.write(`event: change\ndata: {"revision":"${revision}"}\n\n`);};
- await page.goto(base);await page.getByRole('button',{name:'Open library A',exact:true}).waitFor();
+ await page.goto(base);result.navigationUrl=page.url();await page.getByRole('button',{name:'Open library A',exact:true}).waitFor();
  assert.equal(await page.locator('.snl-panel-header:visible').count(),1);assert.equal(await page.locator('.snl-libraries-table th').count(),4);
  await page.screenshot({path:resolve(evidence,'workspace.png')});result.cases.push('shared-readonly-Library-table');
  await page.getByRole('button',{name:'Open library A',exact:true}).click();await page.locator('[data-snl-route-id="node-0"]').waitFor();
@@ -58,5 +59,5 @@ try{
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:resolve(evidence,'narrow-actions.png')});result.cases.push('narrow-unified-header-actions-no-page-overflow');
  result.ok=result.errors.length===0;assert(result.ok,JSON.stringify(result.errors));
 }catch(error){result.ok=false;result.failure=String(error);throw error;}
-finally{try{await browser?.close();}finally{for(const s of streams)s.end();await new Promise(r=>server.close(r));writeFileSync(resolve(evidence,'results.json'),JSON.stringify(result,null,2));}}
+finally{try{if(browser){await browser.close();result.browserClosed=true;}}finally{for(const s of streams)s.end();await new Promise(r=>server.close(r));result.serverClosed=true;writeFileSync(resolve(evidence,'results.json'),JSON.stringify(result,null,2));}}
 console.log(JSON.stringify(result,null,2));

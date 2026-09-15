@@ -6,7 +6,6 @@
 import { useReaderCapabilities } from '../reader/ReaderCapabilities';
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import 'katex/dist/katex.min.css';
-import '@sjtu-ai4math/snl-basics/style.css';
 import '@sjtu-ai4math/snl-basics/entry/style.css';
 import {
   EntryDataDriver,

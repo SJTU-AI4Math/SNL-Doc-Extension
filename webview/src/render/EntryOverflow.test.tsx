@@ -47,6 +47,13 @@ function renderWideEntry(): {
 }
 
 describe('EntrySurface horizontal overflow', () => {
+  it('delegates document title typography to the SNL TeX profile', () => {
+    expect(entrySurfaceCss).not.toMatch(
+      /\.snl-entry-title\s*>\s*span\s*\{[^}]*font-family/s
+    );
+    expect(entrySurfaceCss).not.toContain('Times New Roman');
+  });
+
   it('keeps overflow local and hides the horizontal scrollbar', () => {
     expect(entrySurfaceCss).toContain('[data-entry-body]');
     expect(entrySurfaceCss).toContain('overflow-x: auto');

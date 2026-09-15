@@ -315,6 +315,16 @@ describe('extensionRenderers', () => {
     expect(marker.style.listStyleType).toBe('');
   });
 
+  it('uses the shared TeX prose token for explicit enumerate markers', () => {
+    const css = readFileSync(resolve(__dirname, '../components/ui.css'), 'utf8');
+    expect(css).toMatch(
+      /\.snl-enumerate-item-marker\s*\{[^}]*font-family:\s*var\(--snl-tex-prose-font-family\)[^}]*font-size:\s*var\(--snl-tex-prose-scale\)/s
+    );
+    expect(css).toMatch(
+      /\.snl-text\s+\.snl-enumerate-item-marker\s*\{[^}]*font-size:\s*1em/s
+    );
+  });
+
   it('loads the real CSS contract that pins native markers to the first grid row', () => {
     const style = document.createElement('style');
     style.textContent = `${readFileSync(

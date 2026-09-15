@@ -83,13 +83,8 @@
   word-break: normal;
 }
 
-/* Basics 0.2.4 renders title prose as native text instead of one KaTeX tree.
-   Preserve the established Computer Modern title/body typography while math
-   islands retain KaTeX's own font rules. */
-.snl-entry-overflow-surface .snl-entry-title > span {
-  font-family: KaTeX_Main, 'Times New Roman', serif;
-  line-height: 1;
-}
+/* Title typography belongs to the public Basics Entry stylesheet, including
+   its shared Computer Modern/CJK prose tokens and native line metrics. */
 
 /* Markdown prose needs the same emergency wrapping, while its nested pre/code
    surfaces retain their own horizontal scrolling contract. */

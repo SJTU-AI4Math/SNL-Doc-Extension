@@ -18,6 +18,14 @@ resolvable, and set `SNL_CHROMIUM_PATH` to the executable. `playwright-core` doe
 download a browser. This workflow has been exercised with Node 24 and Python 3.11;
 it is not a cross-platform acceptance claim.
 
+The Library-depth harness has an additional Linux cleanup requirement: `python3`
+on PATH with `os.pidfd_open` and `signal.pidfd_send_signal` (Python 3.9+ and kernel
+pidfd support; its Python tests require 3.10+). The helper binds process birth and
+ancestry before signaling through retained pidfds. Missing support or ambiguous
+ownership fails cleanup closed; it does not fall back to numeric-PID/group kills.
+Windows and macOS keep their existing platform paths and are not certified by
+these Linux runs.
+
 ```sh
 python3 scripts/browser-author-overlay.py /absolute/private/evidence HEAD
 cd /absolute/private/evidence/source

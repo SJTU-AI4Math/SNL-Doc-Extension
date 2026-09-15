@@ -92,6 +92,7 @@ export interface OutlineNode {
 /** Current position in the 2-layer stack. */
 export type View =
   | { kind: 'loading' }
+  | { kind: 'libraryError'; slug: string; message: string }
   | { kind: 'libraries'; libraries: LibraryEntry[] }
   | { kind: 'librariesError'; message: string; previous: LibraryEntry[] | null }
   | {
@@ -123,6 +124,8 @@ export interface RenderCtx {
 
 export function renderCurrentView(view: View, ctx: RenderCtx): React.ReactElement {
   switch (view.kind) {
+    case 'libraryError':
+      return <LibraryErrorLayer slug={view.slug} message={view.message} ctx={ctx} />;
     case 'loading':
       return <LoadingLayer />;
     case 'libraries':
@@ -146,6 +149,15 @@ export function renderCurrentView(view: View, ctx: RenderCtx): React.ReactElemen
 // ---------------------------------------------------------------------------
 // Layer components
 // ---------------------------------------------------------------------------
+
+function LibraryErrorLayer({ slug, message, ctx }: { slug: string; message: string; ctx: RenderCtx }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
+  return <><TopBar title={`Library unavailable: ${slug}`} />
+    <div role="alert">{message}</div>
+    <Button onClick={ctx.goBack}>{t('back')}</Button>
+    <Button onClick={() => ctx.postMessage({ type: 'selectLibrary', slug })}>{t('retry')}</Button>
+  </>;
+}
 
 function LoadingLayer(): React.ReactElement {
   const t = useUiMessages(MESSAGES);

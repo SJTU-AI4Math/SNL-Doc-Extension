@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { LibraryBodyHost } from './libraryBodyHost';
 import { bind_preferences_panel_title } from './preferencesHost';
 import {
   addEntry,
@@ -6,11 +7,8 @@ import {
   createLibrary,
   entityRevision,
   mutateLibraryCounters,
-  readAllMacros,
-  readEntries,
   readEntryKinds,
   readLibraryCountersSnapshot,
-  readLibraryGraph,
   readLibraryMeta,
   updateLibraryGraphNodeEntryId,
   updateLibrary,
@@ -175,6 +173,8 @@ export class CreateLibraryPanel {
   /** Only set when mode === 'edit'; the library slug being edited. */
   private slug: string;
   private disposables: vscode.Disposable[] = [];
+  private readonly libraryBody = new LibraryBodyHost();
+  private disposed = false;
   private contextGeneration = 0;
   private graphGeneration = 0;
   private counterGeneration = 0;
@@ -268,10 +268,18 @@ export class CreateLibraryPanel {
       if (targets.includes('context')) return this.pushContext();
       if (targets.includes('counters')) return this.pushCounters('countersPushed');
       return undefined;
+    }, undefined, (uri) => {
+      const target = classifyLibraryEditorWatchPath(uri.path, this.slug);
+      if (target === 'ignore') return false;
+      if (target === 'counters') { this.counterGeneration++; return true; }
+      if (!this.libraryBody.invalidate(uri, this.slug)) return false;
+      this.contextGeneration++; this.graphGeneration++; this.counterGeneration++;
+      return true;
     });
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (this.mode === 'edit' && event.affectsConfiguration('snlDoc.metrics')) {
+          this.libraryBody.retire(); this.graphGeneration++;
           void this.pushGraph();
         }
       })
@@ -306,7 +314,7 @@ export class CreateLibraryPanel {
           throw vscode.FileSystemError.FileNotFound();
         }
       } catch (err) {
-        if (generation !== this.contextGeneration) return;
+        if (this.disposed || generation !== this.contextGeneration || root?.toString() !== firstWorkspaceFolder()?.toString()) return;
         const code = err && typeof err === 'object' && 'code' in err
           ? (err as { code?: unknown }).code
           : undefined;
@@ -322,7 +330,7 @@ export class CreateLibraryPanel {
       }
       // meta.json is the source of truth for title (per Task 1 refactor).
       const metaResult = await readLibraryMeta(root, this.slug);
-      if (generation !== this.contextGeneration) return;
+      if (this.disposed || generation !== this.contextGeneration || root?.toString() !== firstWorkspaceFolder()?.toString()) return;
       if (metaResult.status === 'error') throw new Error(metaResult.message);
       const title =
         metaResult.status === 'ok' && typeof metaResult.meta.title === 'string'
@@ -342,14 +350,14 @@ export class CreateLibraryPanel {
       // Push the outline immediately after context so the webview has
       // everything it needs to render in one paint.
       await this.pushGraph(generation);
-      if (generation !== this.contextGeneration) return;
+      if (this.disposed || generation !== this.contextGeneration || root?.toString() !== firstWorkspaceFolder()?.toString()) return;
       // Counters live in a separate file (libraries/<slug>/counters.json);
       // push them alongside the graph so the Counters section renders in the
       // same paint. The .SNL_Doc/** watcher re-invokes pushContext on any
       // external counters.json edit, keeping the tree fresh.
       await this.pushCounters('countersLoaded', generation);
     } catch (err) {
-      if (generation !== this.contextGeneration) return;
+      if (this.disposed || generation !== this.contextGeneration || root?.toString() !== firstWorkspaceFolder()?.toString()) return;
       const text = err instanceof Error ? err.message : String(err);
       void this.panel.webview.postMessage({ type: 'error', message: text });
     }
@@ -376,6 +384,7 @@ export class CreateLibraryPanel {
   private async pushGraph(parentGeneration?: number): Promise<void> {
     const generation = ++this.graphGeneration;
     const isStale = (): boolean =>
+      this.disposed || root?.toString() !== firstWorkspaceFolder()?.toString() ||
       generation !== this.graphGeneration ||
       (parentGeneration !== undefined && parentGeneration !== this.contextGeneration);
     if (this.mode !== 'edit') return;
@@ -388,7 +397,8 @@ export class CreateLibraryPanel {
       return;
     }
     try {
-      const gResult = await readLibraryGraph(root, this.slug);
+      const body = await this.libraryBody.read(root, this.slug);
+      const gResult = body.graph;
       if (isStale()) return;
       let nodes: GraphNodeDto[] = [];
       let relationships: GraphRelationshipDto[] = [];
@@ -413,19 +423,10 @@ export class CreateLibraryPanel {
         // No graph.json → treat as empty graph so the outline editor can
         // start populating one.
         warnings = [libraryT()('graphMissingWarning')];
-      } else {
-        void this.panel.webview.postMessage({
-          type: 'graphError',
-          message: gResult.message
-        });
-        return;
       }
       // Independent reads run concurrently (cat 2026-07-25: panels felt slow).
-      const [entries, kinds, macros] = await Promise.all([
-        readEntries(root),
-        readEntryKinds(root),
-        readAllMacros(root)
-      ]);
+      const { entries, macros } = body;
+      const kinds = await readEntryKinds(root);
       const metricMacroSources = Object.fromEntries(
         Object.entries(macros).map(([name, macro]) => [name, { source: macro.source }])
       );
@@ -475,6 +476,23 @@ export class CreateLibraryPanel {
     }
     if (msg.type === 'ready') {
       await this.pushContext();
+      return;
+    }
+    if (msg.type === 'lookupEntry') {
+      const root = firstWorkspaceFolder();
+      const generation = this.contextGeneration;
+      const slug = this.slug;
+      if (!Number.isSafeInteger(msg.requestId) || (msg.requestId as number) < 0 || typeof msg.entryId !== 'string') return;
+      const current = () => !this.disposed && generation === this.contextGeneration && slug === this.slug &&
+        root?.toString() === firstWorkspaceFolder()?.toString();
+      try {
+        if (!root) throw new Error(libraryT()('noWorkspace'));
+        const entry = msg.entryId === '' ? null : await this.libraryBody.lookup(root, msg.entryId);
+        if (current()) void this.panel.webview.postMessage({ type: 'entryLookup', requestId: msg.requestId, entryId: msg.entryId, entry });
+      } catch (error) {
+        if (current()) void this.panel.webview.postMessage({ type: 'entryLookupError', requestId: msg.requestId, entryId: msg.entryId,
+          message: error instanceof Error ? error.message : String(error) });
+      }
       return;
     }
     if (msg.type === 'requestGraph') {
@@ -852,8 +870,7 @@ export class CreateLibraryPanel {
             // this is a stub, in which case we skip the pool-existence check
             // and let the dangling ref resolve when the entry lands later.
             if (!isStub) {
-              const pool = await readEntries(root);
-              if (!pool.some((e) => e && e.id === rawEntryId)) {
+              if (!await this.libraryBody.lookup(root, rawEntryId)) {
                 void this.panel.webview.postMessage({
                   type: 'graphError',
                   message: libraryT()('entryNotFound', { entry: rawEntryId })
@@ -1307,6 +1324,9 @@ export class CreateLibraryPanel {
   }
 
   public dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true; this.contextGeneration++; this.graphGeneration++; this.counterGeneration++;
+    this.libraryBody.retire();
     const key = `${this.mode}:${this.slug}`;
     CreateLibraryPanel.instances.delete(key);
 

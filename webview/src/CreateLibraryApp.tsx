@@ -12,6 +12,7 @@
 //      All graph mutations post `{ type: 'graphOp', op }` to the host.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useLibraryEntryLookup, type LibraryLookup } from './reader/useLibraryEntryLookup';
 import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
 import type { ThemedKindColoring } from '../../src/kindColoring';
 import { KindPreview } from './components/KindPreview';
@@ -1237,6 +1238,10 @@ function OutlineEditor({
     counterId?: string;
   } | null>(null);
 
+  const lookup = useLibraryEntryLookup(addingUnder?.entryId.trim() ?? '',
+    JSON.stringify([collapseIdentity, addingUnder?.parentId, addingUnder?.insertAfter, addingUnder?.wrapTargetId, !!addingUnder]));
+  useEffect(() => setAddingUnder(null), [collapseIdentity]);
+
   // Precompute indices for the current graph.
   const { childrenOf, roots, nodeById, entriesById, kindsById } = useMemo(() => {
     if (!graph) {
@@ -1342,9 +1347,9 @@ function OutlineEditor({
     //                        Fulcrum 2026-07-16.
     //   - typed-resolved   → REFERENCE mode: insert a node pointing at the
     //                        existing pooled entry.
-    const exists =
-      entryIdTrimmed.length > 0 &&
-      graph?.entries.some((e) => e.id === entryIdTrimmed);
+    if (entryIdTrimmed && (lookup.entryId !== entryIdTrimmed ||
+        (lookup.state !== 'found' && lookup.state !== 'missing'))) return;
+    const exists = lookup.state === 'found';
     if (entryIdTrimmed.length === 0) {
       // No id to stub — keep the popover open so the user can paste the id
       // returned by the Create Entry panel when they come back.
@@ -1504,7 +1509,7 @@ function OutlineEditor({
         <AddNodeForm
           depth={depth}
           kinds={graph.kinds}
-          entriesById={entriesById}
+          lookup={lookup}
           entryOptions={entryOptions}
           counters={counters}
           state={addingUnder}
@@ -1560,7 +1565,7 @@ function OutlineEditor({
         <AddNodeForm
           depth={0}
           kinds={graph.kinds}
-          entriesById={entriesById}
+          lookup={lookup}
           entryOptions={entryOptions}
           counters={counters}
           state={addingUnder}
@@ -1893,7 +1898,7 @@ function OutlineEntryTargetEditor({
 
 function AddNodeForm({
   depth,
-  entriesById,
+  lookup,
   entryOptions,
   counters,
   state,
@@ -1905,7 +1910,7 @@ function AddNodeForm({
   // kinds is unused now (Create routes to CreateEntry panel), but kept in
   // the prop shape to avoid churn at the callsites.
   kinds: KindItem[];
-  entriesById: Map<string, EntryPoolItem>;
+  lookup: LibraryLookup;
   /**
    * Shared pool projected as EntryOption[] for the {@link EntityIdSearchBox}.
    * Kept alongside `entriesById` (rather than derived inside the form) so
@@ -1937,7 +1942,8 @@ function AddNodeForm({
   const contentLanguage = use_content_language();
   const entryIdTrimmed = state.entryId.trim();
   const isEmpty = entryIdTrimmed.length === 0;
-  const referencedEntry = !isEmpty ? entriesById.get(entryIdTrimmed) : undefined;
+  const referencedEntry = lookup.state === 'found' ? lookup.entry : undefined;
+  const lookupBlocked = !isEmpty && (lookup.state === 'pending' || lookup.state === 'error');
   const flatCounters = flattenCounters(counters);
 
   // Three states drive the visual language (cat 2026-07-06):
@@ -2022,6 +2028,7 @@ function AddNodeForm({
             onChange={(next) =>
               onUpdate({
                 parentId: state.parentId,
+                wrapTargetId: state.wrapTargetId,
                 insertAfter: state.insertAfter,
                 entryId: next,
                 counterId: state.counterId
@@ -2069,6 +2076,7 @@ function AddNodeForm({
             onChange={(e) =>
               onUpdate({
                 parentId: state.parentId,
+                wrapTargetId: state.wrapTargetId,
                 insertAfter: state.insertAfter,
                 entryId: state.entryId,
                 counterId: e.target.value
@@ -2107,7 +2115,7 @@ function AddNodeForm({
             color: statusColor
           }}
         >
-          {mode === 'matched'
+          {lookupBlocked ? (lookup.message ?? 'Looking up Entry…') : mode === 'matched'
             ? t('referenceStatus', {
                 title: referencedEntry
                   ? resolve_localized_string(referencedEntry.title, contentLanguage) || t('untitled')
@@ -2118,7 +2126,7 @@ function AddNodeForm({
               ? t('noMatchStatus', { id: entryIdTrimmed })
               : t('emptyStatus')}
         </span>
-        <Button onClick={onCommit} style={toolbarButtonStyle(true)}>
+        <Button disabled={lookupBlocked} onClick={onCommit} style={toolbarButtonStyle(true)}>
           {buttonLabel}
         </Button>
         <Button onClick={onCancel} style={toolbarButtonStyle(false)}>

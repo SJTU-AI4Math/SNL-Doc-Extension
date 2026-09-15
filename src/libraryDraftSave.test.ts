@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { makePackageManifest, packageManifestPath } from './entityStorage';
 
 interface MemUri { path: string; fsPath: string; scheme: string; toString(skip?: boolean): string }
 const enc = new TextEncoder();
@@ -18,10 +19,11 @@ vi.mock('vscode', () => ({
   workspace: {
     fs: {
       stat: vi.fn(async (target: MemUri) => {
-        if (['/ws/.SNL_Doc', '/ws/.SNL_Doc/libraries', '/ws/.SNL_Doc/libraries/lib'].includes(target.fsPath)) return { type: 2 };
+        if (['/ws/.SNL_Doc/entries', '/ws/.SNL_Doc/macros', '/ws/.SNL_Doc/packages', '/ws/.SNL_Doc', '/ws/.SNL_Doc/libraries', '/ws/.SNL_Doc/libraries/lib'].includes(target.fsPath)) return { type: 2 };
         if (files.has(target.fsPath)) return { type: 1 };
         throw Object.assign(new Error('missing'), { code: 'FileNotFound' });
       }),
+      readDirectory: vi.fn(async () => [[packageManifestPath('_unpackaged').slice('packages/'.length), 1]]),
       readFile: vi.fn(async (target: MemUri) => {
         const value = files.get(target.fsPath);
         if (!value) throw Object.assign(new Error('missing'), { code: 'FileNotFound' });
@@ -63,8 +65,11 @@ beforeEach(() => {
   truncateThenFailWritePath = null;
   files.clear();
   files.set('/ws/.SNL_Doc/config.json', enc.encode(JSON.stringify({
-    version: '0.1.0', entry_kinds: [], macro_kinds: []
+    version: '0.1.0', entry_kinds: [], macro_kinds: [], active_macro_packages: [],
+    entity_storage: { version: 1, legacy_backup_version: '0.0.5', entry_default_package: '_unpackaged',
+      receipt: { legacy_backup_present: false, legacy_entries_present: false, entry_count: 0, macro_package_count: 0, macro_count: 0, entries_digest: '', macro_packages_digest: '' } }
   })));
+  files.set('/ws/.SNL_Doc/' + packageManifestPath('_unpackaged'), enc.encode(JSON.stringify(makePackageManifest('_unpackaged', 'Unpackaged', '', []))));
   files.set(metaPath, enc.encode(JSON.stringify({ title: 'Old', metaExtension: { keep: true } })));
   files.set(graphPath, enc.encode(JSON.stringify({
     graphExtension: { keep: true },
@@ -310,14 +315,26 @@ describe('updateLibraryDraft three-file transaction', () => {
     expect(json(countersPath)).toEqual(before.counters);
   });
 
-  it('restores every file byte-for-byte when the current write truncates before rejecting', async () => {
+  it('preserves unowned truncated residue, reports incomplete, and restores independent files byte-for-byte', async () => {
+    // Changed contract: a rejected backend's half-write is indistinguishable
+    // from third-party residue, so it must no longer be blindly overwritten.
     const before = new Map([
       [metaPath, new Uint8Array(files.get(metaPath)!)],
       [graphPath, new Uint8Array(files.get(graphPath)!)],
       [countersPath, new Uint8Array(files.get(countersPath)!)]
     ]);
+    const input = payload();
+    const intendedCounters = enc.encode(JSON.stringify({
+      ...json(countersPath),
+      counters: [{ ...json(countersPath).counters[0], ...input.counters[0] }]
+    }, null, 2) + '\n');
+    const truncated = intendedCounters.slice(0, Math.max(1, Math.floor(intendedCounters.length / 2)));
     truncateThenFailWritePath = countersPath;
-    expect(await updateLibraryDraft(root, 'lib', payload())).toMatchObject({ status: 'error' });
-    for (const [path, bytes] of before) expect(files.get(path)).toEqual(bytes);
+    expect(await updateLibraryDraft(root, 'lib', input)).toMatchObject({
+      status: 'error', message: expect.stringMatching(/rollback was incomplete/)
+    });
+    for (const path of [metaPath, graphPath]) expect(files.get(path)).toEqual(before.get(path));
+    expect(files.get(countersPath)).toEqual(truncated);
+    expect(files.get(countersPath)).not.toEqual(before.get(countersPath));
   });
 });

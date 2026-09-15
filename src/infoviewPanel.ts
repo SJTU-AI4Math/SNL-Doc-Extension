@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { LibraryBodyHost } from './libraryBodyHost';
 import { readCachedEntryMetrics } from './ssiCache';
 import { cacheRootForWorkspace } from './cacheRoot';
 import { readReaderPageRank } from './readerPageRank';
@@ -37,6 +38,7 @@ import {
 } from './snlDoc';
 import {
   buildPanelHtml,
+  installSnlDocWatcher,
   firstWorkspaceFolder,
   handleWebviewTraceMessage,
   webviewLocalResourceRoots
@@ -156,6 +158,10 @@ export class InfoviewPanel {
   private entryRawTitle: EntryData['title'] | null = null;
   private contentLanguage: string | null = null;
   private disposables: vscode.Disposable[] = [];
+  private readonly libraryBody = new LibraryBodyHost();
+  private disposed = false;
+  private refreshLibraryBody = true;
+  private libraryBodySnapshot?: { root: string; slug: string; body: Awaited<ReturnType<LibraryBodyHost['read']>> };
   private viewGeneration = 0;
   private renderSourceContext: RenderSourceContext | undefined;
 
@@ -320,43 +326,19 @@ export class InfoviewPanel {
    *     Library again to see the updated outline.
    */
   private installWatcher(): void {
-    const root = firstWorkspaceFolder();
-    if (!root) {
-      return;
-    }
-    // Same coverage as DashboardPanel — narrow enough to not fire on every
-    // webview build write, broad enough to catch all data the panel reads.
-    const patterns: vscode.GlobPattern[] = [
-      new vscode.RelativePattern(root, '.SNL_Doc/config.json'),
-      new vscode.RelativePattern(root, '.SNL_Doc/entries.json'),
-      new vscode.RelativePattern(root, '.SNL_Doc/entries/*.json'),
-      new vscode.RelativePattern(root, '.SNL_Doc/relationships.json'),
-      new vscode.RelativePattern(root, '.SNL_Doc/libraries/*/graph.json'),
-      new vscode.RelativePattern(root, '.SNL_Doc/libraries/*/meta.json'),
-      new vscode.RelativePattern(root, '.SNL_Doc/libraries/*'),
-      new vscode.RelativePattern(root, '.SNL_Doc/term_macros/*.json'),
-      new vscode.RelativePattern(root, '.SNL_Doc/packages/*.json'),
-      new vscode.RelativePattern(root, '.SNL_Doc/macros/*.json'),
-      new vscode.RelativePattern(root, '.SNL_Doc')
-    ];
-
-    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-    const refresh = (): void => {
-      if (refreshTimer) clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => {
-        refreshTimer = undefined;
-        void this.refresh();
-      }, 120);
-    };
-    this.disposables.push({ dispose: () => { if (refreshTimer) clearTimeout(refreshTimer); } });
-
-    for (const pattern of patterns) {
-      const watcher = vscode.workspace.createFileSystemWatcher(pattern);
-      watcher.onDidCreate(refresh, null, this.disposables);
-      watcher.onDidChange(refresh, null, this.disposables);
-      watcher.onDidDelete(refresh, null, this.disposables);
-      this.disposables.push(watcher);
-    }
+    installSnlDocWatcher(this.disposables, () => this.currentLibrarySlug
+      ? this.pushLibraryEntries(this.currentLibrarySlug, !this.refreshLibraryBody) : this.refresh(), undefined, (uri) => {
+      if (this.currentLibrarySlug) {
+        const otherLibrary = /\/libraries\/([^/]+)\//.exec(uri.path);
+        if (otherLibrary && otherLibrary[1] !== this.currentLibrarySlug) return false;
+        if (this.libraryBody.invalidate(uri, this.currentLibrarySlug)) this.refreshLibraryBody = true;
+        void this.panel.webview.postMessage({ type: 'libraryInvalidated', slug: this.currentLibrarySlug });
+      }
+      // Even an off-body event invalidates complete global/export authority.
+      this.viewGeneration++;
+      this.renderSourceContext = undefined; this.readerSnapshot = undefined;
+      return true;
+    });
   }
 
   /**
@@ -658,6 +640,7 @@ export class InfoviewPanel {
 
   /** Send the top-level Libraries list (layer 1 of 3). */
   private async pushLibraries(): Promise<void> {
+    this.renderSourceContext = undefined; this.readerSnapshot = undefined;
     const generation = ++this.viewGeneration;
     const root = firstWorkspaceFolder();
     if (!root) {
@@ -694,19 +677,16 @@ export class InfoviewPanel {
    * Warnings from `readLibraryGraph` and per-node resolution failures both
    * feed into the `warnings` list.
    */
-  private async pushLibraryEntries(slug: string): Promise<void> {
+  private async pushLibraryEntries(slug: string, reuseBody = false): Promise<void> {
     const generation = ++this.viewGeneration;
     const root = firstWorkspaceFolder();
+    this.renderSourceContext = undefined;
+    this.readerSnapshot = undefined;
+    const isCurrent = () => !this.disposed && generation === this.viewGeneration &&
+      root?.toString() === firstWorkspaceFolder()?.toString();
+    let bodyPublished = false;
     if (!root) {
-      void this.panel.webview.postMessage({
-        type: 'libraryEntries',
-        slug,
-        title: slug,
-        entries: [],
-        outline: [],
-        macros: {},
-        warnings: []
-      });
+      void this.panel.webview.postMessage({ type: 'libraryEntriesError', slug, message: hostText()('noWorkspace') });
       return;
     }
 
@@ -718,19 +698,35 @@ export class InfoviewPanel {
       const displayTitle = lib?.title ?? slug;
       const description = lib?.description;
 
-      // Shared pool + kinds for entry / kind / counter resolution. These are
-      // independent files, so read them together rather than one after the
-      // other, and hand the pool to `readLibraryGraph` so it does not read
-      // `entries.json` a second time for its dangling-id check.
-      // Cat 2026-07-25: panels felt slow.
-      const [entryPool, kinds, counters, macros, macroKinds, languages] = await Promise.all([
-        readEntries(root), readEntryKinds(root), readLibraryCounters(root, slug),
-        this.readMacroDb(), readMacroKinds(root), readWorkspaceSupportedLanguages(root)
+      const retained = reuseBody && this.libraryBodySnapshot?.root === root.toString() && this.libraryBodySnapshot.slug === slug
+        ? this.libraryBodySnapshot.body : undefined;
+      const [body, kinds, counters, macroKinds, languages] = await Promise.all([
+        retained ?? this.libraryBody.read(root, slug), readEntryKinds(root), readLibraryCounters(root, slug),
+        readMacroKinds(root), readWorkspaceSupportedLanguages(root)
       ]);
+      if (!isCurrent()) return;
+      this.libraryBodySnapshot = { root: root.toString(), slug, body };
+      this.refreshLibraryBody = false;
+      const bodyGraph: LibraryGraph = body.graph.status === 'ok' ? body.graph.result.graph : { nodes: [], relationships: [] };
+      const bodyWarnings = body.graph.status === 'ok' ? [...body.graph.result.warnings] : [];
+      const bodyOutline = buildOutline(bodyGraph, new Map(body.entries.map(e => [e.id, e])),
+        new Map(kinds.map(k => [k.id, k])), new Map(body.entries.map(e => [e.id, { kind: e.kind }])),
+        new Map(kinds.map(k => [k.id, { defaultCounterName: k.defaultCounterName ?? '' }])), counters, bodyWarnings);
+      if (retained) await this.panel.webview.postMessage({ type: 'libraryRegionsPending', slug, bodyGeneration: generation });
+      else await this.panel.webview.postMessage({ type: 'libraryEntries', bodyGeneration: generation, globalPending: true,
+        slug, title: displayTitle, description, outline: bodyOutline, warnings: bodyWarnings,
+        entries: body.entries.map(e => ({ id: e.id, package: e.package, title: e.title, snl: e.content.snl, hasContent: !!e.content.snl })),
+        entryPackages: entryPackageIdentities(body.entries), macros: body.macros, macroKinds, assetBaseUri: this.assetBaseUri(root) });
+      bodyPublished = true;
+      // Yield to the early reader before starting the independent, complete
+      // workspace region. Render-context closure is never a frozen snapshot.
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      if (!isCurrent()) return;
+      const [entryPool, macros] = await Promise.all([readEntries(root), readAllMacros(root)]);
       // Dependency generation reuses these exact global reads, not a second scan.
       // Cache-entry order is not Host-generation order: retired reads must not
       // acquire shared publication authority after a current read has entered.
-      if (generation !== this.viewGeneration) return;
+      if (!isCurrent()) return;
       const relationshipRead = await readRelationships(root, { entries: entryPool, macros }).then(
         relationships => ({ relationships, error: null as string | null }),
         (error: unknown) => ({ relationships: [], error: error instanceof Error ? error.message : String(error) })
@@ -746,7 +742,7 @@ export class InfoviewPanel {
         warnings.push(...graphResult.result.warnings);
         graph = graphResult.result.graph;
       } else if (graphResult.status === 'error') {
-        warnings.push(graphResult.message);
+        throw new Error(graphResult.message);
       }
 
       const entriesById = new Map<string, EntryData>();
@@ -847,19 +843,19 @@ export class InfoviewPanel {
 
       const closure = readerDependencyClosure(outline, entryPool, macros, relationshipRead.relationships);
       const closureIds = closure.entries.map(entry => entry.id);
-      if (generation !== this.viewGeneration) return;
+      if (!isCurrent()) return;
       const [cachedEntryMetrics, globalPageRank] = await Promise.all([
         readCachedEntryMetrics(cacheRootForWorkspace(root), entryPool, macros, closureIds),
         readReaderPageRank(cacheRootForWorkspace(root), entryPool, relationshipRead, closureIds)
       ]);
-      if (generation !== this.viewGeneration) return;
+      if (!isCurrent()) return;
       const dependencies = { libraries, entries: entryPool, kinds, counters, graphResult, relationshipRead, macros, macroKinds, languages };
       const renderSnapshotId = renderDependencyId(dependencies);
       const context: RenderSourceContext = {
         rootPath: root.fsPath, renderSnapshotId, entries: closure.entries.map(entry => ({ id: entry.id, package: entry.package, pointer: structuredClone(entry.pointer), title: resolve_localized_string(entry.title, this.contentLanguage ?? "en") })),
         entryRoutes: renderSourceRoutes(graph.nodes, closure.entries),
         revalidate: async () => {
-          if (firstWorkspaceFolder()?.toString() !== root.toString()) throw new Error('Workspace changed; recapture export.');
+          if (!isCurrent()) throw new Error('Workspace changed; recapture export.');
           const [currentLibraries, entries, currentKinds, currentCounters, relationships, currentMacros, currentMacroKinds, currentLanguages] = await Promise.all([
             listLibraries(root), readEntries(root), readEntryKinds(root), readLibraryCounters(root, slug),
             readRelationships(root), readAllMacros(root), readMacroKinds(root), readWorkspaceSupportedLanguages(root)
@@ -884,7 +880,8 @@ export class InfoviewPanel {
 
       void this.panel.webview.postMessage({
         renderSnapshotId,
-        type: 'libraryEntries',
+        type: 'libraryRegions',
+        bodyGeneration: generation,
         cachedEntryMetrics: projectCachedEntryMetrics(cachedEntryMetrics, libraryEntryIds),
         globalPageRank: globalPageRank ? projectPageRank(globalPageRank, libraryEntryIds) : null,
         slug,
@@ -902,20 +899,16 @@ export class InfoviewPanel {
         warnings
       });
     } catch (err) {
-      if (generation !== this.viewGeneration) return;
+      if (!isCurrent()) return;
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
         hostText()('loadLibraryFailed', { slug, error: text })
       );
-      void this.panel.webview.postMessage({
-        type: 'libraryEntries',
-        slug,
-        title: slug,
-        entries: [],
-        outline: [],
-        macros: {},
-        warnings: [text]
-      });
+      this.libraryBody.retire(); this.refreshLibraryBody = true; this.libraryBodySnapshot = undefined;
+      this.renderSourceContext = undefined; this.readerSnapshot = undefined;
+      void this.panel.webview.postMessage(bodyPublished
+        ? { type: 'libraryRegionsError', slug, bodyGeneration: generation, message: text }
+        : { type: 'libraryEntriesError', slug, message: text });
     }
   }
 
@@ -1290,6 +1283,9 @@ export class InfoviewPanel {
   }
 
   public dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true; this.viewGeneration++; this.libraryBody.retire();
+    this.readerSnapshot = undefined; this.renderSourceContext = undefined;
     if (this.entryId === null) {
       InfoviewPanel.browserPanel = undefined;
     } else {

@@ -5,6 +5,7 @@ import { CreateRelationshipApp } from './CreateRelationshipApp';
 import { KindEditorApp, type KindEditorDomain } from './KindEditorApp';
 import { editorDraftKey, loadDraft } from './components/draftState';
 import type { VsCodeApi } from './vscodeApi';
+import { set_content_language } from './runtime/preferencesRuntime';
 
 const posted: unknown[] = [];
 let state: unknown;
@@ -33,7 +34,7 @@ beforeEach(() => {
   document.documentElement.lang = 'en';
 });
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); set_content_language('en'); });
 
 describe('identity-scoped editor draft persistence', () => {
   it('restores a library title and submits its original revision after a host refresh', async () => {
@@ -133,6 +134,75 @@ describe('identity-scoped editor draft persistence', () => {
     expect(loadDraft(api, key)).toBeTruthy();
     send({ type: 'updated', id: 'rel-1' });
     await waitFor(() => expect(loadDraft(api, key)).toBeUndefined());
+  });
+
+  it('persists the complete localized Kind map and scope across remount, remote revision, ACK and Style-only re-save', async () => {
+    act(() => set_content_language('zh-CN'));
+    const localized = (en: string, zh: string, ja: string) => ({
+      type: 'i18n' as const, default_language: 'ja', values: { en, 'zh-CN': zh, ja }
+    });
+    const name = localized('Theorem', '原定理', '定理');
+    const description = localized('Description', '原说明', '説明');
+    const coloring = {
+      light: { stroke: '#112233', background: '#ddeeff' },
+      dark: { stroke: '#aabbcc', background: '#223344' }
+    };
+    const context = {
+      type: 'context', mode: 'edit', id: 'localized-kind', kindRevision: 'original-revision',
+      existingIds: [], languages: [
+        { id: 'en', display_name: 'English' }, { id: 'zh-CN', display_name: '中文' },
+        { id: 'ja', display_name: '日本語' }
+      ], existing: { name, description, coloring, defaultCounterName: 'theorem', style: 'original-style' }
+    };
+    const first = render(<KindEditorApp domain="entry" />);
+    send(context);
+    const input = (view: typeof first, label: string) => view.getByLabelText(label) as HTMLInputElement;
+    expect(input(first, 'Entry Kind language').value).toBe('zh-CN');
+    fireEvent.change(input(first, 'Display name'), { target: { value: '草稿定理' } });
+    fireEvent.change(input(first, 'Description'), { target: { value: '草稿说明' } });
+    fireEvent.change(input(first, 'Entry Kind language'), { target: { value: 'en' } });
+    fireEvent.change(input(first, 'Display name'), { target: { value: 'Draft theorem' } });
+    fireEvent.change(input(first, 'Entry Kind language'), { target: { value: 'zh-CN' } });
+    const expectedName = localized('Draft theorem', '草稿定理', '定理');
+    const expectedDescription = localized('Description', '草稿说明', '説明');
+    const key = editorDraftKey('entry-kind', 'edit', 'localized-kind');
+    const expectedDraft = {
+      id: 'localized-kind', name: expectedName, description: expectedDescription, editLanguage: 'zh-CN',
+      lightStroke: '#112233', lightBackground: '#ddeeff', darkStroke: '#aabbcc', darkBackground: '#223344',
+      defaultCounterName: 'theorem', style: 'original-style', expectedRevision: 'original-revision'
+    };
+    await waitFor(() => expect(loadDraft(api, key)).toEqual(expectedDraft));
+    first.unmount();
+    const second = render(<KindEditorApp domain="entry" />);
+    send({ ...context, kindRevision: 'remote-revision', existing: {
+      ...context.existing, name: localized('REMOTE', '远程', 'リモート'),
+      description: localized('REMOTE DESCRIPTION', '远程说明', '遠隔説明'), style: 'remote-style'
+    } });
+    await waitFor(() => expect(input(second, 'Display name').value).toBe('草稿定理'));
+    expect(input(second, 'Description').value).toBe('草稿说明');
+    expect(input(second, 'Entry Kind language').value).toBe('zh-CN');
+    expect(loadDraft(api, key)).toEqual(expectedDraft);
+    const payload = { id: 'localized-kind', name: expectedName, description: expectedDescription,
+      coloring, defaultCounterName: 'theorem', style: 'original-style' };
+    fireEvent.click(second.getByRole('button', { name: 'Update Entry Kind' }));
+    await waitFor(() => expect(submission()).toEqual({ type: 'update', payload, expectedRevision: 'original-revision' }));
+    expect(loadDraft(api, key)).toEqual(expectedDraft);
+    // Real host sends a scalar status name, followed by a complete authoritative context.
+    send({ type: 'updated', kind: { id: 'localized-kind', name: '草稿定理' } });
+    await waitFor(() => expect(loadDraft(api, key)).toBeUndefined());
+    send({ ...context, kindRevision: 'saved-revision', existing: payload });
+    expect(input(second, 'Entry Kind language').value).toBe('zh-CN');
+    expect(input(second, 'Display name').value).toBe('草稿定理');
+    expect(loadDraft(api, key)).toBeUndefined();
+    posted.length = 0;
+    fireEvent.change(input(second, 'Style tag'), { target: { value: 'style-only-edit' } });
+    await waitFor(() => expect(loadDraft(api, key)).toEqual({
+      ...expectedDraft, style: 'style-only-edit', expectedRevision: 'saved-revision'
+    }));
+    fireEvent.click(second.getByRole('button', { name: 'Update Entry Kind' }));
+    await waitFor(() => expect(submission()).toEqual({
+      type: 'update', payload: { ...payload, style: 'style-only-edit' }, expectedRevision: 'saved-revision'
+    }));
   });
 
   for (const domain of ['entry', 'macro'] as KindEditorDomain[]) {

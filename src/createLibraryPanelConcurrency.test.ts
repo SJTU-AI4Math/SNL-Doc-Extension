@@ -142,6 +142,16 @@ function panelHarness(prototype: object, posted: any[]): any {
   return Object.assign(Object.create(prototype), {
     mode: 'edit', slug: 'lib', contextGeneration: 0, graphGeneration: 0, counterGeneration: 0,
     mutationTail: Promise.resolve(),
+    libraryBody: {
+      retire() {},
+      read: async () => ({
+        graph: operationMode
+          ? { status: 'ok', result: { graph: structuredClone(operationGraph), warnings: [] } }
+          : await deferred(graphReads),
+        entries: structuredClone(operationEntries), macros: {}
+      }),
+      lookup: async (_root: any, id: string) => operationEntries.find(entry => entry.id === id) ?? null
+    },
     panel: { webview: { postMessage: async (message: unknown) => { posted.push(message); return true; } } }
   });
 }

@@ -43,8 +43,14 @@ interface LibraryEntry { slug: string; title: string; description?: string; hasM
 type Incoming =
   | { type: 'libraries'; libraries: LibraryEntry[] }
   | { type: 'librariesError'; message: string }
+  | { type: 'libraryInvalidated'; slug: string }
+  | { type: 'libraryRegionsPending'; slug: string; bodyGeneration: number }
+  | { type: 'libraryRegionsError'; slug: string; bodyGeneration: number; message: string }
+  | { type: 'libraryEntriesError'; slug: string; message: string }
   | {
-      type: 'libraryEntries';
+      type: 'libraryEntries' | 'libraryRegions';
+      bodyGeneration?: number;
+      globalPending?: boolean;
       renderSnapshotId?: string;
       cachedEntryMetrics?: CachedEntryMetrics;
       globalPageRank?: GlobalPageRankView | null;
@@ -74,6 +80,9 @@ export function App(): React.ReactElement {
   const [entryPool, setEntryPool] = useState<EntryOption[]>([]);
   const [entryPackages, setEntryPackages] = useState<Record<string, string>>({});
   const [assetBaseUri, setAssetBaseUri] = useState('');
+  const [exportReady, setExportReady] = useState(false);
+  const [regionError, setRegionError] = useState<string | null>(null);
+  const bodyScopeRef = useRef<{ slug: string; generation?: number } | null>(null);
   const apiRef = useVsCodeApiRef();
 
   useEffect(() => {
@@ -85,6 +94,7 @@ export function App(): React.ReactElement {
       }
       switch (msg.type) {
         case 'libraries':
+          bodyScopeRef.current = null; setExportReady(false);
           cancelExport();
           setView({
             kind: 'libraries',
@@ -104,7 +114,31 @@ export function App(): React.ReactElement {
                   : null
           }));
           break;
+        case 'libraryInvalidated':
+        case 'libraryRegionsPending':
+          if (bodyScopeRef.current?.slug !== msg.slug) break;
+          if (msg.type === 'libraryRegionsPending') bodyScopeRef.current.generation = msg.bodyGeneration;
+          cancelExport(); renderSnapshotRef.current = undefined; setExportReady(false);
+          break;
+        case 'libraryRegionsError':
+          if (bodyScopeRef.current?.slug !== msg.slug || bodyScopeRef.current.generation !== msg.bodyGeneration) break;
+          cancelExport(); renderSnapshotRef.current = undefined; setExportReady(false);
+          setRegionError(msg.message);
+          break;
+        case 'libraryEntriesError':
+          if (typeof msg.slug !== 'string' || typeof msg.message !== 'string') break;
+          cancelExport(); renderSnapshotRef.current = undefined;
+          setEntryPool([]); setEntryPackages({}); setWireUserMacros(undefined);
+          setKindPalette(undefined); setAssetBaseUri('');
+          setCachedEntryMetrics(undefined); setGlobalPageRank(null);
+          setExportReady(false); bodyScopeRef.current = null;
+          setView({ kind: 'libraryError', slug: msg.slug, message: msg.message });
+          break;
+        case 'libraryRegions':
         case 'libraryEntries':
+          if (msg.type === 'libraryRegions' && (bodyScopeRef.current?.slug !== msg.slug || bodyScopeRef.current.generation !== msg.bodyGeneration)) break;
+          if (msg.type === 'libraryEntries') bodyScopeRef.current = { slug: msg.slug, generation: msg.bodyGeneration };
+          setExportReady(msg.globalPending !== true); setRegionError(null);
           setCachedEntryMetrics(isCachedEntryMetrics(msg.cachedEntryMetrics) ? msg.cachedEntryMetrics : undefined);
           setGlobalPageRank(isGlobalPageRankView(msg.globalPageRank) ? msg.globalPageRank : null);
           renderSnapshotRef.current = msg.renderSnapshotId;
@@ -120,6 +154,7 @@ export function App(): React.ReactElement {
           setEntryPackages(msg.entryPackages && typeof msg.entryPackages === 'object'
             ? msg.entryPackages
             : {});
+          if (msg.type === 'libraryRegions') break;
           setView({
             kind: 'library',
             slug: msg.slug,
@@ -212,7 +247,7 @@ export function App(): React.ReactElement {
 
   const goBack = (): void => {
     cancelExport();
-    if (view.kind === 'library') {
+    if (view.kind === 'library' || view.kind === 'libraryError') {
       // `ready` preserves a host-seeded Library slug so direct navigation can
       // survive the first handshake. Back is an explicit state transition:
       // clear that slug on the host and request the Libraries root.
@@ -221,7 +256,7 @@ export function App(): React.ReactElement {
   };
 
   return (
-    <ReaderCapabilitiesContext.Provider value={{ api: apiRef.current, edit: true, graph: true, export: true }}>
+    <ReaderCapabilitiesContext.Provider value={{ api: apiRef.current, edit: true, graph: true, export: exportReady }}>
     <HoverPopoverProvider
       postMessage={postMessage}
       entries={entryPool}
@@ -231,6 +266,7 @@ export function App(): React.ReactElement {
       markdownImageUrlTransform={markdownImageUrlTransform}
     >
       <main style={PANEL_STYLE}>
+        {regionError ? <div role="status">{regionError}</div> : null}
         {renderCurrentView(view, {
           postMessage,
           cachedEntryMetrics,

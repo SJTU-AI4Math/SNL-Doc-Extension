@@ -10,6 +10,7 @@ import { assertTableRendererTransport } from './blockRendererSpec';
 import { createHash, randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import * as vscode from 'vscode';
+import { EntryIdentityIndex } from './entryIdentityIndex';
 import { isDeepStrictEqual } from 'node:util';
 import { notifyPointerEntriesWritten } from './pointerSyncHostState';
 import { invariantHostText } from './hostI18n';
@@ -211,6 +212,21 @@ async function assertWorkspaceWritableOnDisk(
   return rawConfig;
 }
 
+/** Library mutations do not depend on Entry/Macro bodies. Validate the full
+ * current metadata topology instead of silently disabling workspace admission. */
+async function assertLibraryWritableOnDisk(workspaceRoot: vscode.Uri): Promise<unknown> {
+  const config = await assertWorkspaceWritableOnDisk(workspaceRoot, false, true);
+  const base = snlRootUri(workspaceRoot);
+  for (const directory of ['entries', 'macros', 'packages', 'libraries']) {
+    await assertRealDirectory(vscode.Uri.joinPath(base, directory), `.SNL_Doc/${directory}`);
+  }
+  await new EntryIdentityIndex(base.toString(), {
+    readFile: path => Promise.resolve(vscode.workspace.fs.readFile(vscode.Uri.joinPath(base, path))),
+    readDirectory: path => Promise.resolve(vscode.workspace.fs.readDirectory(vscode.Uri.joinPath(base, path)))
+  }).snapshot();
+  return config;
+}
+
 interface HeldInProcessWriterContext {
   active: boolean;
 }
@@ -349,11 +365,7 @@ async function writeWorkspaceFile(
     if (libraryWrite) {
       await assertOwnedLibraryPath(workspaceRoot, uri);
     }
-    const currentConfig = await assertWorkspaceWritableOnDisk(
-      workspaceRoot,
-      validateTopology,
-      libraryWrite
-    );
+    const currentConfig = await assertWorkspaceWritableOnDisk(workspaceRoot, validateTopology, libraryWrite);
     const writingConfig = uri.fsPath === configUri(workspaceRoot).fsPath;
     if (expectedOriginal !== NO_EXPECTED_SNAPSHOT) {
       const currentTarget = writingConfig
@@ -431,7 +443,11 @@ async function applyJsonFileOperations(
   operations: readonly JsonFileOperation[]
 ): Promise<void> {
   await withExtensionWriterLock(workspaceRoot, purpose, async () => {
-    await assertWorkspaceWritableOnDisk(workspaceRoot);
+    if (purpose === 'commit complete Library draft') {
+      await assertLibraryWritableOnDisk(workspaceRoot);
+    } else {
+      await assertWorkspaceWritableOnDisk(workspaceRoot);
+    }
     const attempted: Array<{
       operation: JsonFileOperation;
       completed: boolean;
@@ -472,28 +488,30 @@ async function applyJsonFileOperations(
         try {
           if (!completed) {
             if (!ioStarted) continue;
-            // The CAS gate completed and filesystem I/O started. A backend may
-            // then truncate/persist bytes before rejecting, so compensate with
-            // the exact pre-write bytes while still under the writer lock.
+            // Starting I/O is not proof that the rejected operation owns the
+            // current bytes. Preserve unchanged originals without touching their
+            // metadata; refuse foreign/partial/unreadable residue. These checks
+            // and the conditional helpers below share the cooperative writer
+            // lock, not an atomic POSIX CAS against uncooperative writers.
             const librariesPath = librariesDirUri(workspaceRoot).path.replace(/\/+$/, '');
             if (operation.uri.path === librariesPath || operation.uri.path.startsWith(`${librariesPath}/`)) {
               await assertOwnedLibraryPath(workspaceRoot, operation.uri);
             }
-            if (originalBytes === null) {
-              if (await exists(operation.uri)) {
-                await vscode.workspace.fs.delete(operation.uri, { recursive: false, useTrash: false });
-              }
-            } else {
-              await writeWorkspaceFile(
-                workspaceRoot,
-                operation.uri,
-                originalBytes,
-                NO_EXPECTED_SNAPSHOT,
-                false,
-                false
-              );
+            let currentBytes: Uint8Array | null;
+            try {
+              currentBytes = new Uint8Array(await vscode.workspace.fs.readFile(operation.uri));
+            } catch (readError) {
+              const code = (readError as { code?: unknown } | null)?.code;
+              if (code !== 'FileNotFound' && code !== 'ENOENT') throw readError;
+              currentBytes = null;
             }
-            continue;
+            if (isDeepStrictEqual(currentBytes, originalBytes)) continue;
+            const intendedBytes = operation.kind === 'write' ? jsonBytes(operation.value) : null;
+            if (!isDeepStrictEqual(currentBytes, intendedBytes)) {
+              throw new Error('Cannot establish failed-operation ownership; current bytes were preserved.');
+            }
+            // The intended result landed despite rejection. Reuse the same
+            // expected-snapshot compensation as a completed operation.
           }
           if (operation.kind === 'write') {
             if (operation.expected === null) {
@@ -6236,12 +6254,13 @@ export interface ReadLibraryGraphResult {
  * inner read doubled that file on every push.
  * Cat 2026-07-25: "各个 Panel 开起来都非常慢".
  *
- * Semantics are unchanged: when omitted the pool is read internally exactly
- * as before, and a read failure still degrades to "skip entryId validation"
- * rather than failing the graph read.
+ * Without a resolver the full pool is read internally. Resolution errors are
+ * fatal; absence is a dangling-reference warning, even for an empty pool.
  */
 export interface ReadLibraryGraphOptions {
   entryPool?: EntryData[];
+  /** Resolve normalized graph seeds only; cannot be combined with entryPool. */
+  resolveEntries?: (ids: readonly string[]) => Promise<EntryData[]>;
 }
 
 /**
@@ -6305,20 +6324,6 @@ export async function readLibraryGraph(
     warnings.push('relationships is not an array (treated as empty)');
   }
 
-  // Cheap pre-index of the shared entry pool so dangling-entryId warnings
-  // can be computed in one read. When the caller already holds the pool it
-  // hands it in via `opts.entryPool`, saving a duplicate `entries.json` read.
-  const knownEntryIds = new Set<string>();
-  try {
-    const entries = opts?.entryPool ?? (await readEntries(workspaceRoot));
-    for (const e of entries) {
-      if (e && typeof e.id === 'string') knownEntryIds.add(e.id);
-    }
-  } catch {
-    // If the shared pool is unreadable we simply skip entryId validation.
-    // Not a fatal condition for reading a library's graph.
-  }
-
   const nodes: GraphNodeDto[] = [];
   const idSet = new Set<string>();
   for (let i = 0; i < rawNodes.length; i++) {
@@ -6358,15 +6363,22 @@ export async function readLibraryGraph(
       );
     }
 
-    // Spec §8: Entry nodes carry props.entryId → warn if dangling.
-    if (label === 'Entry' && knownEntryIds.size > 0) {
-      const entryId = props.entryId;
-      if (typeof entryId === 'string' && entryId && !knownEntryIds.has(entryId)) {
-        warnings.push(
-          `Entry node "${id}" references missing entry "${entryId}"`
-        );
+  }
+
+  try {
+    if (opts?.entryPool && opts.resolveEntries) throw new Error('Conflicting Library Entry resolvers.');
+    const ids = [...new Set(nodes.flatMap(node => node.label === 'Entry' &&
+      typeof node.props.entryId === 'string' && node.props.entryId ? [node.props.entryId] : []))];
+    const entries = opts?.resolveEntries ? await opts.resolveEntries(ids) : opts?.entryPool ?? await readEntries(workspaceRoot);
+    const knownEntryIds = new Set(entries.map(entry => entry.id));
+    for (const node of nodes) {
+      const entryId = node.props.entryId;
+      if (node.label === 'Entry' && typeof entryId === 'string' && entryId && !knownEntryIds.has(entryId)) {
+        warnings.push(`Entry node "${node.id}" references missing entry "${entryId}"`);
       }
     }
+  } catch (error) {
+    return { status: 'error', message: error instanceof Error ? error.message : String(error) };
   }
 
   const relationships: GraphRelationshipDto[] = [];

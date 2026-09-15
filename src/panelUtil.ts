@@ -188,7 +188,8 @@ export function firstWorkspaceFolder(): vscode.Uri | undefined {
 export function installSnlDocWatcher(
   disposables: vscode.Disposable[],
   refresh: (uris?: readonly vscode.Uri[]) => void | Promise<void>,
-  pathFilter: RegExp = SNL_DOC_WATCHED_PATH
+  pathFilter: RegExp = SNL_DOC_WATCHED_PATH,
+  invalidate?: (uri: vscode.Uri) => boolean | void
 ): void {
   const root = firstWorkspaceFolder();
   if (!root) return;
@@ -205,7 +206,8 @@ export function installSnlDocWatcher(
     // Ignore churn we never read: only the entry pool, macro packages and
     // config feed panel state.
     if (!pathFilter.test(uri.path)) return;
-    pendingUris.set(uri.path, uri);
+    if (invalidate?.(uri) === false) return;
+    pendingUris.set(typeof uri.scheme === 'string' ? uri.toString(true) : uri.path, uri);
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;

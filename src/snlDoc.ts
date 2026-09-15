@@ -536,6 +536,15 @@ async function applyJsonFileOperations(
         }
         attempt.completed = true;
       }
+      // Individual writes deliberately skip topology checks while the batch is
+      // incomplete. Revalidate the settled result before leaving the rollback
+      // boundary, using the same scope as admission (no full body scans for
+      // Library-only mutations).
+      if (scope === WriterValidationScope.Workspace) {
+        await assertWorkspaceWritableOnDisk(workspaceRoot);
+      } else {
+        await assertLibraryWritableOnDisk(workspaceRoot, scope);
+      }
     } catch (error) {
       const rollbackErrors: string[] = [];
       for (const { operation, completed, ioStarted, originalBytes } of attempted.reverse()) {

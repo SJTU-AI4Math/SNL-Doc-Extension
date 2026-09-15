@@ -456,7 +456,32 @@ describe('stored workspace data migration', () => {
     expect(storage.writes).toEqual([]);
   });
 
-  it('revalidates the loaded 0.0.7 snapshot when a Package disappears after preflight', async () => {
+  it('rejects a loaded predecessor snapshot before canonicalization or writes when its Package disappears', async () => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(storage, canonicalize);
+    const config = storage.values.get('config.json') as Record<string, unknown>;
+    config.version = '0.0.7';
+    downgradeEntityMacros(storage, '9');
+    const originalConfig = structuredClone(config);
+    let packageLists = 0;
+    storage.beforeList = directory => {
+      // The current preflight is config-only: this first enumeration is the
+      // actual loadSnapshot seam, not the later publication verification.
+      if (directory === 'packages' && ++packageLists === 1) {
+        storage.values.delete(packageManifestPath('Logic'));
+      }
+    };
+    storage.writes.length = 0;
+    const canonicalizeSpy = vi.fn(canonicalize);
+    await expect(migrateStoredWorkspaceData(storage, canonicalizeSpy))
+      .rejects.toThrow(/Loaded migration snapshot failed topology validation/i);
+    expect(packageLists).toBe(1);
+    expect(canonicalizeSpy).not.toHaveBeenCalled();
+    expect(storage.writes).toEqual([]);
+    expect(storage.values.get('config.json')).toEqual(originalConfig);
+  });
+
+  it('rejects a Package disappearing during config-publication verification and compensates the migrated Macro', async () => {
     const storage = legacyStorage();
     await migrateStoredWorkspaceData(storage, canonicalize);
     const config = storage.values.get('config.json') as Record<string, unknown>;

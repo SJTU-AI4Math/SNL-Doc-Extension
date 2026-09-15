@@ -18,6 +18,47 @@ afterEach(() => {
 });
 
 describe('MacroIdInput', () => {
+
+  it('retains the full original workspace autocomplete candidates after real input', () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return <MacroIdInput value={value} onChange={setValue}
+        macroCandidates={['FOL.forall', 'Foo.bar', 'Add.add'].map((id) => ({ id, labels: [] }))}
+        aria-label="Original autocomplete Macro ID" />;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Original autocomplete Macro ID' }) as HTMLInputElement;
+    fireEvent.focus(input);
+    expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
+    fireEvent.change(input, { target: { value: 'FO' } });
+    expect(view.getByRole('listbox', { name: 'Macro ID suggestions' })).toBeTruthy();
+    expect(view.getByRole('option', { name: 'FOL.forall' })).toBeTruthy();
+    expect(view.getByRole('option', { name: 'Foo.bar' })).toBeTruthy();
+    fireEvent.keyDown(input, { key: 'Tab' });
+    expect(input.value).toBe('FOL.forall');
+  });
+
+  it('retains Ctrl+F focus and Tab acceptance independently of immediate-click acceptance', () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return <MacroIdInput value={value} onChange={setValue}
+        macroCandidates={['FOL.forall', 'Foo.bar', 'Add.add'].map((id) => ({ id, labels: [] }))}
+        aria-label="Original keyboard picker Macro ID" />;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Original keyboard picker Macro ID' }) as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: 'f', ctrlKey: true });
+    expect(view.getByRole('dialog', { name: 'SNoogL Macro Search' })).toBeTruthy();
+    const search = view.getByRole('textbox', { name: 'Search macros in SNoogL' });
+    expect(document.activeElement).toBe(search);
+    fireEvent.change(search, { target: { value: 'FOL' } });
+    expect(view.getByRole('option', { name: 'FOL.forall' }).getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(search, { key: 'Tab' });
+    expect(input.value).toBe('FOL.forall');
+    expect(view.queryByRole('dialog', { name: 'SNoogL Macro Search' })).toBeNull();
+  });
+
   const previewMacro = (name: string, body: string): WireMacro => ({
     name,
     description: '',

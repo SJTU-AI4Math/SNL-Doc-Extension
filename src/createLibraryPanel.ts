@@ -178,6 +178,8 @@ export class CreateLibraryPanel {
   private disposed = false;
   private contextGeneration = 0;
   private metadataGeneration = 0;
+  private contextPublished = false;
+  private pendingContextGeneration: number | undefined;
   private graphGeneration = 0;
   private counterGeneration = 0;
   private mutationTail: Promise<void> = Promise.resolve();
@@ -269,7 +271,7 @@ export class CreateLibraryPanel {
       ) ?? ['context'];
       if (targets.includes('context')) return this.pushContext();
       return Promise.all([
-        targets.includes('metadata') ? this.pushMetadata() : undefined,
+        targets.includes('metadata') ? this.pushMetadata(true) : undefined,
         targets.includes('counters') ? this.pushCounters('countersPushed') : undefined
       ]).then(() => undefined);
     }, undefined, (uri) => {
@@ -283,6 +285,7 @@ export class CreateLibraryPanel {
       this.contextGeneration++; this.graphGeneration++; this.counterGeneration++;
       return true;
     }, () => {
+      this.contextPublished = false;
       this.libraryBody.retire();
       this.contextGeneration++; this.graphGeneration++; this.counterGeneration++;
     });
@@ -304,7 +307,7 @@ export class CreateLibraryPanel {
       vscode.Uri.joinPath(root, '.SNL_Doc', 'libraries', this.slug, 'meta.json').toString(true);
   }
 
-  private async pushMetadata(): Promise<void> {
+  private async pushMetadata(recoverInitialContext = false): Promise<void> {
     const generation = ++this.metadataGeneration;
     const context = this.contextGeneration;
     const root = firstWorkspaceFolder();
@@ -319,6 +322,13 @@ export class CreateLibraryPanel {
       const result = await readLibraryMetadataSnapshot(root, slug);
       if (result.status === 'error') throw new Error(result.message);
       if (!current()) return;
+      // A repaired first read needs its one initial context/graph/counter load.
+      // Do not replace an initial context already in flight or rehydrate a
+      // successfully initialized editor for an ordinary metadata update.
+      if (recoverInitialContext && !this.contextPublished && this.pendingContextGeneration !== context) {
+        await this.pushContext();
+        return;
+      }
       const meta = result.status === 'ok' ? result.meta : null;
       void this.panel.webview.postMessage({ type: 'libraryMetadata', slug, targetState: 'found',
         libraryRevision: entityRevision(meta), existing: { slug, title: typeof meta?.title === 'string' ? meta.title : slug } });
@@ -338,6 +348,7 @@ export class CreateLibraryPanel {
     }
     const root = firstWorkspaceFolder();
     if (!root) {
+      this.contextPublished = false;
       void this.panel.webview.postMessage({
         type: 'context',
         mode: 'edit',
@@ -347,6 +358,7 @@ export class CreateLibraryPanel {
       });
       return;
     }
+    this.pendingContextGeneration = generation;
     try {
       try {
         const target = await vscode.workspace.fs.stat(
@@ -361,6 +373,7 @@ export class CreateLibraryPanel {
           ? (err as { code?: unknown }).code
           : undefined;
         if (code !== 'FileNotFound' && code !== 'ENOENT') throw err;
+        this.contextPublished = false;
         void this.panel.webview.postMessage({
           type: 'context',
           mode: 'edit',
@@ -389,10 +402,13 @@ export class CreateLibraryPanel {
       const libraryRevision = entityRevision(
         metaResult.status === 'ok' ? metaResult.meta : null
       );
-      if (metadataGeneration === this.metadataGeneration) void this.panel.webview.postMessage({
-        type: 'context', mode: 'edit', slug: this.slug, targetState: 'found',
-        libraryRevision, existing: { slug: this.slug, title }
-      });
+      if (metadataGeneration === this.metadataGeneration) {
+        void this.panel.webview.postMessage({
+          type: 'context', mode: 'edit', slug: this.slug, targetState: 'found',
+          libraryRevision, existing: { slug: this.slug, title }
+        });
+        this.contextPublished = true;
+      }
       // Push the outline immediately after context so the webview has
       // everything it needs to render in one paint.
       await this.pushGraph(generation);
@@ -405,11 +421,14 @@ export class CreateLibraryPanel {
     } catch (err) {
       if (this.disposed || generation !== this.contextGeneration || root?.toString() !== firstWorkspaceFolder()?.toString()) return;
       const text = err instanceof Error ? err.message : String(err);
-      void this.panel.webview.postMessage({ type: 'error', message: text });
+      void this.panel.webview.postMessage({ type: 'error', scope: 'context', slug: this.slug, message: text });
+    } finally {
+      if (this.pendingContextGeneration === generation) this.pendingContextGeneration = undefined;
     }
   }
 
   private transitionToEdit(slug: string): void {
+    this.contextPublished = false;
     this.libraryBody.retire();
     this.contextGeneration++; this.graphGeneration++; this.counterGeneration++;
     const currentKey = `${this.mode}:${this.slug}`;

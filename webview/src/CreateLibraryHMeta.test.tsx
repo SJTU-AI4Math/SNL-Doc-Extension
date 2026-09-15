@@ -55,6 +55,24 @@ afterEach(() => {
 });
 
 
+it('recovers the first context error without a prior hydration and keeps unrelated write failures', () => {
+  setup(); render(<CreateLibraryApp />);
+  send({ type: 'error', scope: 'context', slug: 'algebra', message: 'Broken initial metadata' });
+  expect(screen.getByText(/Broken initial metadata/)).toBeTruthy();
+  hydrate();
+  expect(screen.queryByText(/Broken initial metadata/)).toBeNull();
+  expect(screen.getByDisplayValue('Algebra')).toBeTruthy();
+  expect((screen.getByRole('button', { name: 'Save Changes' }) as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+  expect(postMessage.mock.calls.find(([m]) => m.type === 'saveLibraryDraft')![0]).toMatchObject({
+    slug: 'algebra', title: 'Algebra', graph: { nodes: [{ id: 'root' }, { id: 'child' }] },
+    counters: [{ id: 'counter-1' }], expectedRevisions: { meta: 'meta-r1', graph: 'graph-r1', counters: 'counter-r1' }
+  });
+  send({ type: 'error', message: 'Write failed' });
+  hydrate();
+  expect(screen.getByText(/Write failed/)).toBeTruthy();
+});
+
 it.each(['', '   '])('keeps an empty or whitespace metadata diagnostic fail-closed (%j)', (message) => {
   setup(); render(<CreateLibraryApp />); hydrate();
   send({ type: 'libraryMetadataError', slug: 'algebra', message });

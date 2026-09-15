@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { isMacroDocumentV11, migrateMacroDocument } from '@sjtu-ai4math/snl-basics/core';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { advance, cleanupReader, entry, mountReader, move, navigate, node, panels, semantic, setupReader, snapshot } from './sharedReaderFixture';
 
@@ -27,6 +28,61 @@ async function macroReader() {
 }
 
 describe('exported BrowserReader uses native Entry/Basics behavior', () => {
+
+  it.each(['sub', 'partial'] as const)('keeps %s helper identity outside native hover after canonical ingress', async (inputKind) => {
+    const value = snapshot();
+    let helper: (typeof value.macros)[string] = {
+      ...value.macros.Ref, name: 'Helper', source: { entries: [], urls: [] }, kind: 'sub',
+      styles: [{ style_name: 'default', tags: [], template: { mode: 'formula_inline' as const, body: 'H' } }]
+    };
+    if (inputKind === 'partial') {
+      const legacy = { Helper: {
+        name: 'Helper', description: '', source: { entries: [], urls: [] }, kind: 'partial',
+        dynamic_arity: false, tags: [],
+        styles: [{ style_name: 'default', mode: 'formula_inline' as const, template: 'H', tags: [] }]
+      } };
+      expect(isMacroDocumentV11(legacy)).toBe(false);
+      const migrated = migrateMacroDocument(legacy);
+      expect(isMacroDocumentV11(migrated)).toBe(true);
+      expect(migrated.Helper.kind).toBe('sub');
+      expect(migrated.Helper.styles).toEqual(helper.styles);
+      helper = { ...migrated.Helper, kind: migrated.Helper.kind! }; // asserted sub above
+      // Current v11 rejects raw partial; it is not another renderable helper kind.
+      expect(isMacroDocumentV11({ Helper: { ...helper, kind: 'partial' } })).toBe(false);
+    }
+    value.macros.Helper = helper;
+    value.macros.Control = { ...helper, name: 'Control', kind: 'const',
+      styles: [{ style_name: 'default', tags: [], template: { mode: 'formula_inline', body: 'C' } }] };
+    value.macros.Combined = { ...helper, name: 'Combined', kind: 'sub',
+      styles: [{ style_name: 'default', tags: [], template: { mode: 'formula_inline', body: '#0 + #1' } }] };
+    // Both targets share one native activation root. Moving between separate
+    // panels would require the browser's mouseleave event, not just mousemove.
+    const helperEntry = entry('helper-entry', 'Combined(Helper,Control)');
+    value.entries = [helperEntry];
+    value.library.outline = [node('helper-node', helperEntry)];
+    const view = mountReader(value);
+    const helperElement = await waitFor(() => {
+      // Basics intentionally emits sub's body without a semantic envelope.
+      // Hit its real glyph, not an invented data-kind marker or an empty root.
+      const target = view.container.querySelector<HTMLElement>('[data-entry-id="helper-entry"] .katex-html .mord.mathnormal');
+      expect(target).not.toBeNull();
+      expect(target?.textContent).toBe('H');
+      expect(view.container.querySelector('[data-name="Helper"]')).toBeNull();
+      return target!;
+    });
+    const controlElement = await waitFor(() => {
+      const target = view.container.querySelector<HTMLElement>('[data-name="Control"][data-kind="const"]');
+      expect(target).not.toBeNull(); return target!;
+    });
+    expect(view.container.querySelector('[data-kind="partial"]')).toBeNull();
+    move(helperElement);
+    expect(view.container.querySelectorAll('.snl-single-hover')).toHaveLength(0);
+    move(controlElement);
+    expect(controlElement.classList.contains('snl-single-hover')).toBe(true);
+    move(helperElement);
+    expect(view.container.querySelectorAll('.snl-single-hover')).toHaveLength(0);
+  });
+
   it('keeps native macro previews/styles readable without deep authoring controls', async () => {
     await macroReader();
     expect(screen.queryAllByRole('button', { name: /edit macro|delete macro|edit.*kind/i })).toHaveLength(0);

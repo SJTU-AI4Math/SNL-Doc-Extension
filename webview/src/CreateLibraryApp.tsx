@@ -339,7 +339,7 @@ export function CreateLibraryApp(): React.ReactElement {
         | { type: 'noSnlDoc'; message: string }
         | { type: 'noWorkspace'; message: string }
         | { type: 'invalid'; message: string }
-        | { type: 'error'; message: string }
+        | { type: 'error'; message: string; scope?: 'context'; slug?: string }
         | {
             type: 'graph';
             requestId?: string;
@@ -500,7 +500,12 @@ export function CreateLibraryApp(): React.ReactElement {
           setStatus({ kind: 'invalid', message: msg.message });
           break;
         case 'error':
-          setStatus({ kind: 'error', message: msg.message });
+          if (msg.scope === 'context') {
+            if (typeof msg.slug === 'string' && msg.slug &&
+                (!activeSlugRef.current || msg.slug === activeSlugRef.current)) {
+              setMetadataError(typeof msg.message === 'string' ? msg.message : '');
+            }
+          } else setStatus({ kind: 'error', message: msg.message });
           break;
         case 'graph':
           {

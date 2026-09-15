@@ -211,7 +211,7 @@ export function App(): React.ReactElement {
    * the subtree, so a collapsed branch is absent from the DOM and would be
    * silently dropped from the export.
    */
-  const exportHtml = async (slug: string, title: string, entryCount: number): Promise<void> => {
+  const exportHtml = async (slug: string, title: string, entryCount: number, subtitle?: string): Promise<void> => {
     cancelExport();
     const generation = exportGenerationRef.current;
     const controller = new AbortController();
@@ -230,7 +230,7 @@ export function App(): React.ReactElement {
       }
       const harvested = root ? harvestLibraryHtml(root, assetBaseUri, userMacros) : { html: '', assets: [] };
       postMessage({ type: 'exportLibraryHtml', renderSnapshotId,
-        locale, slug, title, body: harvested.html, assets: harvested.assets });
+        locale, slug, title, subtitle, body: harvested.html, assets: harvested.assets });
     } catch (error) {
       if (isCurrent()) postMessage({ type: 'exportLibraryHtmlError',
         error: error instanceof Error ? error.message : String(error) });

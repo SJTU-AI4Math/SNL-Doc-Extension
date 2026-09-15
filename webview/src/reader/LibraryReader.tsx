@@ -117,7 +117,7 @@ export interface RenderCtx {
   kindPalette: KindPalette | undefined;
   markdownImageUrlTransform?: (source: string) => string;
   /** Harvest the rendered outline and hand it to the host to write out. */
-  exportHtml: (slug: string, title: string, entryCount: number) => void | Promise<void>;
+  exportHtml: (slug: string, title: string, entryCount: number, subtitle?: string) => void | Promise<void>;
   /** Wraps the rendered outline forest; the export harvests from here. */
   outlineRef: React.MutableRefObject<HTMLDivElement | null>;
 }
@@ -393,7 +393,7 @@ export function LibraryLayer({
                 // mounted and just set `hidden`, so their fold state is
                 // harvested as-is and carried into the exported file.)
                 flushSync(() => setCollapsed(new Set()));
-                void ctx.exportHtml(slug, title, totalEntries);
+                void ctx.exportHtml(slug, title, totalEntries, `${t('entries', { count: totalEntries })} · ${slug}`);
               }}
             /> : null}
           </>

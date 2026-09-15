@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App, type OutlineNode } from '../App';
 import type { EntryData, EntryKind } from '../render/EntryRender';
-import { apply_preferences_snapshot } from '../runtime/preferencesRuntime';
+import { apply_preferences_snapshot, set_content_language } from '../runtime/preferencesRuntime';
 import type { VsCodeApi } from '../vscodeApi';
 
 const postMessage = vi.fn();
@@ -60,18 +60,22 @@ afterEach(() => {
 });
 
 describe('Infoview HTML export snapshot handoff', () => {
-  it('captures one static fallback and hands off the host snapshot token without changing live language', async () => {
+  it.each([
+    ['en', 'Export HTML', '3 entries · demo'],
+    ['zh-CN', '导出 HTML', '3 个条目 · demo']
+  ])('captures the localized %s subtitle with the unchanged static fallback', async (language, exportLabel, subtitle) => {
     (globalThis as { __snlApi?: VsCodeApi }).__snlApi = api;
     apply_preferences_snapshot({
       type: 'snl.preferences/snapshot',
       generation: `export-variants-${Date.now()}`,
       revision: 1,
-      preferences: { language: 'en', color_scheme: 'high-contrast-light', motion: 'full' },
+      preferences: { language, color_scheme: 'high-contrast-light', motion: 'full' },
       supported_languages: [
         { id: 'en', display_name: 'English' },
         { id: 'zh-CN', display_name: '简体中文' }
       ]
     });
+    set_content_language('en'); // Interface and content locales are independent.
     render(<App />);
     act(() => window.dispatchEvent(new MessageEvent('message', { data: {
       type: 'libraryEntries',
@@ -114,7 +118,7 @@ describe('Infoview HTML export snapshot handoff', () => {
     await waitFor(() => expect(document.querySelector('.snl-block-right')).not.toBeNull());
     postMessage.mockClear();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Export HTML' }));
+    fireEvent.click(screen.getByRole('button', { name: exportLabel }));
     await waitFor(() => {
       expect(postMessage.mock.calls.some(([message]) => message?.type === 'exportLibraryHtml')).toBe(true);
     }, { timeout: 8000 });
@@ -125,6 +129,7 @@ describe('Infoview HTML export snapshot handoff', () => {
     expect(payload.renderSnapshotId).toBe('frozen-render-A');
     expect(payload.locale).toBe('en');
     expect(payload.slug).toBe('demo');
+    expect(payload.subtitle).toBe(subtitle);
     expect(payload.variants).toBeUndefined();
     expect(payload.popovers).toBeUndefined();
     expect(payload.readerSnapshot).toBeUndefined(); // raw data is owned and attached by the host

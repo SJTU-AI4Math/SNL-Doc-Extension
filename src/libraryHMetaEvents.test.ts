@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { mkdir, rename, readFile } from 'node:fs/promises';
+import { mkdir, rename, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture } from './libraryPointRead.testSupport';
 import { makeEntityStorageReceipt } from './dataMigrations';
@@ -53,6 +53,60 @@ vi.mock('./preferences', () => ({ extension_preferences_runtime: { query_environ
 vi.mock('./panelUtil', async original => ({ ...await original<any>(), buildPanelHtml: () => '', handlePanelNavMessage: async () => false }));
 import { CreateLibraryPanel } from './createLibraryPanel';
 const bodies = () => state.calls.filter(p => /^(read|dir):(entries|macros)(\/|$)/.test(p));
+it('reinitializes a replaced missing target instead of reviving its old graph and counters', async () => {
+  const posted: any[] = [];
+  const panel = { webview: { postMessage: async (m: any) => { posted.push(m); return true; }, onDidReceiveMessage() {} }, onDidChangeViewState() {}, onDidDispose() {}, dispose() {} };
+  const host = new (CreateLibraryPanel as any)(panel, root, 'edit', 'notes');
+  try {
+    await host.handleMessage({ type: 'ready' });
+    await rename(join(state.base, 'libraries/notes'), join(state.base, 'libraries/prior-notes'));
+    posted.length = 0;
+    await host.handleMessage({ type: 'ready' });
+    expect(posted.some(m => m.type === 'context' && m.targetState === 'notFound')).toBe(true);
+    await f.put('.SNL_Doc/libraries/notes/meta.json', { title: 'Replacement' });
+    await f.put('.SNL_Doc/libraries/notes/graph.json', { nodes: [], relationships: [] });
+    await f.put('.SNL_Doc/libraries/notes/counters.json', { counters: [] });
+    posted.length = 0;
+    state.watcher(vscode.Uri.joinPath(root, '.SNL_Doc/libraries/notes/meta.json'));
+    await vi.waitFor(() => {
+      expect(posted.some(m => m.type === 'context' && m.existing?.title === 'Replacement')).toBe(true);
+      expect(posted.some(m => m.type === 'graph' && m.nodes.length === 0)).toBe(true);
+      expect(posted.some(m => m.type === 'countersLoaded' && m.counters.length === 0)).toBe(true);
+    }, { timeout: 3000 });
+  } finally { host.dispose(); }
+});
+
+it.each(['malformed', 'array', 'denied'])('repairs failed first context using only the metadata watch event (%s)', async (failure) => {
+  const posted: any[] = [];
+  const panel = { webview: { postMessage: async (m: any) => { posted.push(m); return true; }, onDidReceiveMessage() {} }, onDidChangeViewState() {}, onDidDispose() {}, dispose() {} };
+  const host = new (CreateLibraryPanel as any)(panel, root, 'edit', 'notes');
+  try {
+    if (failure === 'malformed') await writeFile(join(state.base, 'libraries/notes/meta.json'), '{');
+    else if (failure === 'array') await f.put('.SNL_Doc/libraries/notes/meta.json', []);
+    else state.fail = 'libraries/notes/meta.json';
+    await host.handleMessage({ type: 'ready' });
+    expect(posted.some(m => m.type === 'error')).toBe(true);
+    expect(posted.some(m => ['context', 'graph', 'countersLoaded'].includes(m.type))).toBe(false);
+    state.fail = ''; posted.length = 0; state.calls = [];
+    await f.put('.SNL_Doc/libraries/notes/meta.json', { title: 'Repaired' });
+    state.watcher(vscode.Uri.joinPath(root, '.SNL_Doc/libraries/notes/meta.json'));
+    await vi.waitFor(() => {
+      expect(posted.some(m => m.type === 'context' && m.mode === 'edit' && m.targetState === 'found' && m.existing.title === 'Repaired')).toBe(true);
+      expect(posted.some(m => m.type === 'graph' && m.nodes.length === 1)).toBe(true);
+      expect(posted.some(m => m.type === 'countersLoaded' && m.counters.length === 1)).toBe(true);
+    }, { timeout: 3000 });
+    expect(posted.find(m => m.type === 'context').libraryRevision).toBe(entityRevision({ title: 'Repaired' }));
+    expect(bodies().length).toBeGreaterThan(0);
+    state.calls = []; posted.length = 0;
+    await f.put('.SNL_Doc/libraries/notes/meta.json', { title: 'Second' });
+    state.watcher(vscode.Uri.joinPath(root, '.SNL_Doc/libraries/notes/meta.json'));
+    await vi.waitFor(() => expect(posted.some(m => m.type === 'libraryMetadata')).toBe(true));
+    expect(posted.map(m => m.type)).toEqual(['libraryMetadata']);
+    expect(bodies()).toEqual([]);
+    expect(state.calls.some(p => /libraries\/notes\/(graph|counters)\.json/.test(p))).toBe(false);
+  } finally { host.dispose(); }
+});
+
 it('real watcher metadata and legacy update retain graph/counters without body I/O; errors recover', async () => {
   const posted: any[] = [];
   const panel = { webview: { postMessage: async (m: any) => { posted.push(m); return true; }, onDidReceiveMessage() {} }, onDidChangeViewState() {}, onDidDispose() {}, dispose() {} };

@@ -17,6 +17,6 @@ it('accepts new/empty or precisely owned directories, refuses extra user files a
   await fs.writeFile(path.join(target, 'important.txt'), 'keep');
   await expect(assertOwnedExportDestination(target, false)).rejects.toThrow('not owned');
   expect(await fs.readFile(path.join(target, 'important.txt'), 'utf8')).toBe('keep');
-  const link = path.join(root, 'link'); await fs.symlink(target, link);
+  const link = path.join(root, 'link'); await fs.symlink(target, link, process.platform === 'win32' ? 'junction' : 'dir');
   await expect(assertOwnedExportDestination(link, false)).rejects.toThrow('symlink');
 });

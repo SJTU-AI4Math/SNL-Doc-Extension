@@ -273,8 +273,8 @@ export class ExportOptionsPanel {
 
   private sourceCaptureInput(context: RenderSourceContext, options: SourceExportOptions, destination: string, shape: 'single' | 'directory') {
     const root = firstWorkspaceFolder();
-    if (vscode.workspace.workspaceFolders?.length !== 1 || root?.scheme !== 'file' || root.fsPath !== context.rootPath) {
-      throw new Error('Source export requires one unchanged local workspace root; recapture the document in a single-root workspace.');
+    if (root?.scheme !== 'file' || nodePath.relative(root.fsPath, context.rootPath) !== '') {
+      throw new Error('The SNL workspace data source changed or is unavailable. Open the document again before exporting.');
     }
     const destinationPath = shape === 'single' && !/\.html$/i.test(destination) ? destination + '.html' : destination;
     return { rootPath: context.rootPath, destinationPath, inline: shape === 'single',

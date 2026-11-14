@@ -9,9 +9,9 @@ const state = vi.hoisted(() => ({ base: '', calls: [] as string[], fail: '', wat
 vi.mock('vscode', async () => {
   const fs = await import('node:fs/promises');
   const path = await import('node:path');
-  const uri = (p: string): any => ({ scheme: 'test', authority: 'cost', path: p, fsPath: p, toString: () => 'test://cost' + p });
+  const uri = (p: string): any => ({ scheme: 'test', authority: 'cost', path: p.replaceAll('\\', '/'), fsPath: p, toString: () => 'test://cost' + p.replaceAll('\\', '/') });
   const run = async (op: string, u: any, task: () => Promise<any>) => {
-    const relative = path.relative(state.base, u.path);
+    const relative = path.relative(state.base, u.path).split(path.sep).join('/');
     state.calls.push(op + ':' + relative);
     if (state.fail && relative === state.fail) throw Object.assign(new Error('denied'), { code: 'NoPermissions' });
     try { const result = await task(); if (op === 'read' && relative === 'libraries/notes/meta.json' && state.pause) { const pause = state.pause; state.pause = undefined; await pause(); } return result; } catch (e: any) { if (e.code === 'ENOENT') e.code = 'FileNotFound'; throw e; }

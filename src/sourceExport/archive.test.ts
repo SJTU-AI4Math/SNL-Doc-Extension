@@ -88,7 +88,7 @@ describe('source snapshot', () => {
     expect(await fs.readFile(path.join(root, '.git/index'))).toEqual(index);
     await put('untracked', 'new'); expect((await captureSourceSnapshot(args)).manifest.snapshot.dirty).toBe(true);
   });
-  it('does not block opening a file replaced with a FIFO between scan and open', async () => {
+  it.skipIf(process.platform === 'win32')('does not block opening a file replaced with a FIFO between scan and open', async () => {
     await put('src/a.lean', 'one\ntwo'); const args = input();
     const original = fs.open.bind(fs);
     vi.spyOn(fs, 'open').mockImplementationOnce(async (file, flags, mode) => {
@@ -106,9 +106,13 @@ describe('source snapshot', () => {
   });
   it('rejects FIFO before opening; output aliases remain a hard exclusion even under keep', async () => {
     const args = input(); args.entries = []; args.entryRoutes = []; args.options.scope = 'project'; args.options.keep = ['**'];
-    execFileSync('mkfifo', [path.join(root, 'pipe')]);
-    await expect(captureSourceSnapshot(args)).rejects.toThrow(/file type/); await fs.unlink(path.join(root, 'pipe'));
-    await put('export/prior', 'secret'); await fs.symlink('export', path.join(root, 'alias'));
+    if (process.platform !== 'win32') {
+      execFileSync('mkfifo', [path.join(root, 'pipe')]);
+      await expect(captureSourceSnapshot(args)).rejects.toThrow(/file type/);
+      await fs.unlink(path.join(root, 'pipe'));
+    }
+    await put('export/prior', 'secret');
+    await fs.symlink(path.join(root, 'export'), path.join(root, 'alias'), process.platform === 'win32' ? 'junction' : 'dir');
     expect((await captureSourceSnapshot(args)).manifest.files).toEqual([]);
   });
   it('detects same-byte inode replacement, removed files, empty directory changes and additions during capture', async () => {
@@ -218,7 +222,13 @@ describe('source snapshot', () => {
     args.onProgress = p => { if (p.phase === 'read') writeFileSync(path.join(root, p.path!), 'one\nnew'); };
     await expect(captureSourceSnapshot(args)).rejects.toThrow(/changed during read/);
     await put('other.lean', 'one\ntwo');
-    args.onProgress = p => { if (p.phase === 'read') { unlinkSync(path.join(root, p.path!)); symlinkSync('../other.lean', path.join(root, p.path!)); } };
+    args.onProgress = p => {
+      if (p.phase !== 'read') return;
+      const current = path.join(root, p.path!);
+      unlinkSync(current);
+      if (process.platform === 'win32') writeFileSync(current, 'one\ntwo');
+      else symlinkSync('../other.lean', current);
+    };
     await expect(captureSourceSnapshot(args)).rejects.toThrow(/changed during read/);
   });
   it('detects Pointer/options/route/render changes and preview tampering', async () => {
@@ -239,7 +249,8 @@ describe('source snapshot', () => {
   it('requires specific external root authorization and keeps absolute paths host-only', async () => {
     const external = await fs.mkdtemp(path.join(os.tmpdir(), 'snl-external-'));
     try {
-      await fs.writeFile(path.join(external, 'a.lean'), 'one\ntwo'); await fs.symlink(external, path.join(root, 'src'));
+      await fs.writeFile(path.join(external, 'a.lean'), 'one\ntwo');
+      await fs.symlink(external, path.join(root, 'src'), process.platform === 'win32' ? 'junction' : 'dir');
       const args = input(); args.options.allowMissing = true;
       const blocked = await captureSourceSnapshot(args);
       expect(blocked.chunks).toEqual([]); expect(blocked.externalRoots).toEqual([external]);
@@ -255,9 +266,15 @@ describe('source snapshot', () => {
     await put('a', 'same'); await fs.link(path.join(root, 'a'), path.join(root, 'b'));
     const p = await captureSourceSnapshot(args);
     expect(p.manifest.files.map(f => f.displayPath)).toEqual(['a', 'b']); expect(p.warnings.join()).toContain('Shared file identity');
-    await fs.symlink('.', path.join(root, 'loop')); await expect(captureSourceSnapshot(args)).rejects.toThrow(/cycle/); await fs.unlink(path.join(root, 'loop'));
-    await fs.symlink('absent', path.join(root, 'dangling')); expect((await captureSourceSnapshot(args)).exclusions).toContainEqual({ path: 'dangling', reason: 'missing file or dangling symlink' });
-    await put('A', 'other'); await expect(captureSourceSnapshot(args)).rejects.toThrow(/collision/); await fs.unlink(path.join(root, 'A'));
+    const linkType = process.platform === 'win32' ? 'junction' : 'dir';
+    await fs.symlink(root, path.join(root, 'loop'), linkType);
+    await expect(captureSourceSnapshot(args)).rejects.toThrow(/cycle/);
+    await fs.unlink(path.join(root, 'loop'));
+    await fs.symlink(path.join(root, 'absent'), path.join(root, 'dangling'), linkType);
+    expect((await captureSourceSnapshot(args)).exclusions).toContainEqual({ path: 'dangling', reason: 'missing file or dangling symlink' });
+    if (process.platform !== 'win32') {
+      await put('A', 'other'); await expect(captureSourceSnapshot(args)).rejects.toThrow(/collision/); await fs.unlink(path.join(root, 'A'));
+    }
     await put('é', 'x'); await put('e\u0301', 'x'); await expect(captureSourceSnapshot(args)).rejects.toThrow(/collision/);
   });
 

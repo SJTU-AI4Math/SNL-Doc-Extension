@@ -153,8 +153,9 @@ it('follows legitimate .lake external symlinks and rejects dangling links', asyn
   try {
     await fs.writeFile(path.join(external, 'source.lean'), 'lemma');
     await fs.mkdir(path.join(root, '.lake'));
-    await fs.symlink(external, path.join(root, '.lake', 'packages'));
-    await fs.symlink(path.join(external, 'absent'), path.join(root, 'dangling'));
+    const linkType = process.platform === 'win32' ? 'junction' : 'dir';
+    await fs.symlink(external, path.join(root, '.lake', 'packages'), linkType);
+    await fs.symlink(path.join(external, 'absent'), path.join(root, 'dangling'), linkType);
     const index = await buildPointerIndex(root, [
       { id: 'dep', pointer: { file: '.lake/packages/source.lean', mode: 'lines', line: 1 } },
       { id: 'dangling', pointer: { file: 'dangling', mode: 'lines', line: 1 } }

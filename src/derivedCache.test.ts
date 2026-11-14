@@ -98,7 +98,7 @@ it('rejects path traversal and cache symlinks without touching their targets', a
   const root = await workspace(); const outside = await workspace();
   for (const name of ['../other', '.', 'x/y', 'x\\y', 'C:other', 'NUL']) expect(() => cachePath(root, name)).toThrow();
   expect(() => cachePath(root, 'graph-layout', { library: '../other' })).toThrow();
-  await fs.symlink(outside, join(root, '.SNL_Doc/.cache'));
+  await fs.symlink(outside, join(root, '.SNL_Doc/.cache'), process.platform === 'win32' ? 'junction' : 'dir');
   await expect(getOrGenerateCache(root, request())).rejects.toThrow('Unsafe cache directory');
   await expect(clearCache(root, 'ssi')).rejects.toThrow('Unsafe cache directory');
   expect(await fs.readdir(outside)).toEqual(['.SNL_Doc']);

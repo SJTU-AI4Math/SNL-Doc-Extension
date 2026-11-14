@@ -199,7 +199,8 @@ describe('AD-CAS actual init / rollback after topology rejection', () => {
       expect(JSON.parse((await bytesOrNull(hiddenPath))!)).toEqual(hidden);
       expect(state.trace).not.toContain(`delete-enter:${config}`);
       expect(actual).toMatchObject({ error: { name: 'SnlInitializationRecoveryRequiredError', message: expect.stringMatching(/Explicit recovery required/) } });
-      expect((actual as { error?: { message: string } }).error?.message).toContain(config);
+      const configUri = vscode.Uri.joinPath(rootUri(scheme), '.SNL_Doc', 'config.json');
+      expect((actual as { error?: { message: string } }).error?.message).toContain(configUri.toString());
       if (timing === 'none' || timing === 'delete-hook') {
         // The retained delete-hook attack remains armed but MUST NOT be reached.
         // Independent rename/read hooks above prove actual foreign preservation.

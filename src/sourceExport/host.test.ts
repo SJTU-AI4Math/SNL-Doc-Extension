@@ -60,9 +60,18 @@ describe('source export host authority', () => {
     expect(state.writes).not.toHaveBeenCalled();
     expect(state.messages.at(-1).message).toMatch(/snapshot missing|snapshot\/context mismatch/i);
   });
-  it('rejects ambiguous multi-root source export instead of silently choosing first root', async () => {
-    state.rootCount=2; ExportOptionsPanel.show({} as never, payload, sourceContext()); await preflight();
-    expect(state.capture).not.toHaveBeenCalled(); expect(state.messages.at(-1).message).toMatch(/single.*local|one.*local|single.*root/i);
+  it('exports from the selected root in a multi-root workspace and rejects a stale source context', async () => {
+    state.rootCount = 2;
+    ExportOptionsPanel.show({} as never, payload, sourceContext());
+    await preflight();
+    expect(state.capture).toHaveBeenCalledWith(expect.objectContaining({ rootPath: '/workspace' }));
+    await run();
+    expect(state.writes).toHaveBeenCalledOnce();
+    state.capture.mockClear();
+    ExportOptionsPanel.show({} as never, payload, { ...sourceContext(), rootPath: '/different-workspace' });
+    await preflight();
+    expect(state.capture).not.toHaveBeenCalled();
+    expect(state.messages.at(-1).message).toMatch(/data source changed/);
   });
   it('refuses unconfirmed and retargeted previews, regardless of claimed client consent', async () => {
     ExportOptionsPanel.show({} as never, payload, sourceContext());

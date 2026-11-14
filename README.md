@@ -63,9 +63,8 @@ Then launch the extension from VS Code (F5 / Run Extension). See
 - Both a single HTML file and a directory work offline via `file://`; no network
   Monaco loader is required. Directory replacement only accepts empty targets or
   precisely exporter-owned prior generations, never unrelated project files.
-- The first implementation is local-file/single-root oriented; unsupported or
-  ambiguous workspace roots/providers are rejected. UUID schema work belongs
-  to 0.2.0 and is not part of this candidate.
+- Source inclusion uses the selected local SNL data source. If that source is
+  removed or changed, open the document again before exporting.
 
 ## Derived caches
 

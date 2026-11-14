@@ -8,7 +8,7 @@ Uncommitted artwork and text fields live in the existing webview draft store, se
 
 ## Security and platform boundary
 
-Asset publication supports Linux with `/proc/self/fd`, `O_TMPFILE`, and GNU `ln`; and Windows on a local fixed NTFS drive. On Windows the bundled helper uses Windows PowerShell to open and retain ordinary directory handles, rejects reparse points, flushes content, and installs read-only files by no-replace rename. macOS, virtual providers and unsupported filesystems fail closed. Existing templates remain readable wherever the reader already supports their asset source.
+Asset publication supports Linux with `/proc/self/fd`, `O_TMPFILE`, and GNU `ln`. The publisher also recognizes `/usr/bin/gnuln` on distributions that install uutils as the default `ln`. On a local fixed NTFS drive, the Windows PowerShell helper holds directory handles, rejects reparse points, flushes content, and installs read-only files by no-replace rename. macOS, virtual providers and unsupported filesystems fail closed. Existing templates remain readable wherever the reader already supports their asset source.
 
 The host independently parses and validates both source and runtime XML, including namespaces, CSS/URL forms, local IDs/references and empty slot anchors. Limits are 1 MiB per SVG, 256 KiB for the manifest and 500 characters for the label. Path traversal, reserved/unsafe slugs and symlinks are rejected. Publication uses the existing workspace `.data-write.lock`, including pending batch-recovery rejection.
 

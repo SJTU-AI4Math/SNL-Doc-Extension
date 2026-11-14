@@ -161,7 +161,8 @@ describe('writeWorkspaceSvgMacroAssets', () => {
         expect(outcome.value?.sourcePath).toBe(`svg/${sourceName}`);
         expect(physicalOpens).toBe(3);
         expect(linkSpy).toHaveBeenCalledTimes(3);
-        expect(publications.map((entry) => entry.command)).toEqual(['/bin/ln', '/bin/ln', '/bin/ln']);
+        expect(new Set(publications.map((entry) => entry.command)).size).toBe(1);
+        expect(publications[0].command).toMatch(/^\/(?:bin\/ln|usr\/bin\/gnuln)$/);
         expect(publications.map((entry) => entry.status)).toEqual([0, 0, 0]);
         expect(publications.every((entry) => entry.parent === originalIdentities[3])).toBe(true);
         expect(publications.map((entry) => entry.name.split('.')[1])).toEqual(['source', 'template', 'manifest']);
@@ -198,7 +199,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     vi.spyOn(childProcess, 'spawnSync').mockImplementation(((...args: Parameters<typeof childProcess.spawnSync>) => {
       const [command, argv, options] = args;
       const result = originalSpawn(...args);
-      expect(command).toBe('/bin/ln');
+      expect(command).toMatch(/^\/(?:bin\/ln|usr\/bin\/gnuln)$/);
       expect(result.status).toBe(0);
       const name = String((argv as string[])[3]).split('/').pop()!;
       const kind = name.split('.')[1];

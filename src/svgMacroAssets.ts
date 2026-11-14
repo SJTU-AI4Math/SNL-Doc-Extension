@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { constants as fsConstants, promises as fs } from 'node:fs';
+import { constants as fsConstants, existsSync, promises as fs } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type * as vscode from 'vscode';
 const SVG_ASSET_BASE_IDENTITY = 'workspace:.SNL_Doc/assets' as const;
@@ -189,7 +189,9 @@ async function quarantineOwned(path: string, expected: FileIdentity): Promise<vo
 const O_TMPFILE = 0o20200000;
 
 function linkAnonymousFile(handle: { fd: number }, directoryHandle: { fd: number }, fileName: string): { ok: boolean; detail: string } {
-  const linker = '/bin/ln';
+  // Ubuntu can install uutils as ln while retaining GNU ln as gnuln. The
+  // latter preserves the inherited proc-fd link instead of canonicalizing it.
+  const linker = existsSync('/usr/bin/gnuln') ? '/usr/bin/gnuln' : '/bin/ln';
   const result = spawnSync(linker, [
     '-L', '-T', '/proc/self/fd/3', `/proc/self/fd/4/${fileName}`
   ], {
@@ -240,7 +242,9 @@ async function writeImmutable(
         await verifyExactFile(path, value, directoryPath, directoryIdentity);
         return null;
       } catch (verificationReason) {
-        if (link.detail) void link.detail;
+        if ((verificationReason as NodeJS.ErrnoException).code === 'ENOENT') {
+          throw new Error(`Could not publish SVG asset through the Linux linker: ${link.detail.trim()}`, { cause: verificationReason });
+        }
         throw verificationReason;
       }
     }

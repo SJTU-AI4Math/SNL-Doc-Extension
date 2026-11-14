@@ -5,9 +5,8 @@ import productionEntries from './productionEntries.json';
 
 // Build the React webview into ../media/webview/.
 //
-// The extension host loads each bundle via a classic (non-module)
-// `<script nonce=... src=...>` tag, so every entry must be a SELF-CONTAINED
-// bundle with no top-level `import` (no shared/vendor chunk). We therefore
+// The extension host loads each entry from a single script tag, so each entry
+// must be self-contained, with no shared/vendor chunk. We therefore
 // build one entry per invocation (selected by SNL_WEBVIEW_ENTRY) and append to
 // the same outDir. productionEntries.json locks every input and output, and
 // `npm run build:webview` runs every manifest entry in sequence.
@@ -57,7 +56,7 @@ export default defineConfig({
     // Only the first pass clears the dir; subsequent passes append.
     emptyOutDir: entry.name === 'main',
     // Emit a single self-contained file per entry (no shared/vendor chunk),
-    // so the classic <script> tag in the panels can execute it as-is. The
+    // so the panel's script tag can load it independently. The
     // single-file shape is enforced by the rollup output config below, not
     // by any top-level Vite flag.
     rollupOptions: {

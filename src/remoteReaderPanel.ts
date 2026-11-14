@@ -1,20 +1,43 @@
 import * as vscode from 'vscode';
 import { buildPanelHtml } from './panelUtil';
 import { fetchRemoteReader, remoteReaderOrigin, validRemoteReaderToken } from './remoteReaderClient';
+import { createHostTranslator, defineHostMessages } from './hostI18n';
+import { read_extension_preferences } from './preferences';
 
 const LAST_ENDPOINT = 'snlDoc.remoteReader.endpoint';
+const messages = defineHostMessages({
+  title: 'SNL Remote Reader',
+  origin: 'Enter the HTTPS origin of the Toolkit Reader service',
+  invalidOrigin: 'Enter an HTTPS origin without a path or credentials.',
+  token: 'Enter the Reader token',
+  savedToken: 'Enter a new token, or leave blank to use the saved token',
+  invalidToken: 'Use a token of 32 to 256 base64url characters.',
+  badRequest: 'Could not process this Reader request.',
+  connection: 'Could not connect to the Reader service. Check the address and TLS certificate.',
+  response: 'Invalid Reader response.',
+}, {
+  title: 'SNL 远程阅读器',
+  origin: '输入 Toolkit 远程阅读服务的 HTTPS 地址',
+  invalidOrigin: '请输入不含路径或凭据的 HTTPS 地址。',
+  token: '输入阅读器令牌',
+  savedToken: '输入新令牌，或留空使用已保存的令牌',
+  invalidToken: '令牌须为 32 至 256 个 base64url 字符。',
+  badRequest: '无法处理此阅读请求。',
+  connection: '无法连接阅读器服务。请检查地址和 TLS 证书。',
+  response: '远程阅读器响应无效。',
+});
 
 export async function openRemoteReader(context: vscode.ExtensionContext): Promise<void> {
-  const zh = vscode.env.language.toLowerCase().startsWith('zh');
-  const title = zh ? 'SNL 远程阅读器' : 'SNL Remote Reader';
+  const t = createHostTranslator(read_extension_preferences().language, messages);
+  const title = t('title');
   const endpoint = await vscode.window.showInputBox({
     title,
-    prompt: zh ? '输入 Toolkit 远程阅读服务的 HTTPS 地址' : 'Enter the HTTPS origin of the Toolkit Reader service',
+    prompt: t('origin'),
     value: context.globalState.get<string>(LAST_ENDPOINT),
     ignoreFocusOut: true,
     validateInput: value => {
       try { remoteReaderOrigin(value); return undefined; }
-      catch { return zh ? '请输入不含路径或凭据的 HTTPS 地址。' : 'Enter an HTTPS origin without a path or credentials.'; }
+      catch { return t('invalidOrigin'); }
     }
   });
   if (endpoint === undefined) return;
@@ -23,10 +46,9 @@ export async function openRemoteReader(context: vscode.ExtensionContext): Promis
   const saved = await context.secrets.get(secretKey);
   const token = await vscode.window.showInputBox({
     title, password: true, ignoreFocusOut: true,
-    prompt: zh ? (saved ? '输入新令牌，或留空使用已保存的令牌' : '输入阅读器令牌')
-      : (saved ? 'Enter a new token, or leave blank to use the saved token' : 'Enter the Reader token'),
+    prompt: t(saved ? 'savedToken' : 'token'),
     validateInput: value => (saved && !value) || validRemoteReaderToken(value) ? undefined
-      : (zh ? '令牌须为 32 至 256 个 base64url 字符。' : 'Use a token of 32 to 256 base64url characters.')
+      : t('invalidToken')
   });
   if (token === undefined) return;
   const credential = token || saved;
@@ -50,7 +72,7 @@ export async function openRemoteReader(context: vscode.ExtensionContext): Promis
     if (message.type !== 'remoteReader.request' || requests.has(id)) return;
     if (requests.size >= 4 || (message.library !== undefined &&
       (typeof message.library !== 'string' || !message.library || message.library.length > 256))) {
-      await panel.webview.postMessage({ type: 'remoteReader.response', id, error: zh ? '无法处理此阅读请求。' : 'Could not process this Reader request.' });
+      await panel.webview.postMessage({ type: 'remoteReader.response', id, error: t('badRequest') });
       return;
     }
     const controller = new AbortController();
@@ -62,8 +84,8 @@ export async function openRemoteReader(context: vscode.ExtensionContext): Promis
       if (!controller.signal.aborted) await panel.webview.postMessage({
         type: 'remoteReader.response', id,
         error: error instanceof Error && error.name === 'TypeError'
-          ? (zh ? '无法连接阅读器服务。请检查地址和 TLS 证书。' : 'Could not connect to the Reader service. Check the address and TLS certificate.')
-          : (error instanceof Error && error.name !== 'SyntaxError' ? error.message : 'Invalid Reader response.'),
+          ? t('connection')
+          : (error instanceof Error && error.name !== 'SyntaxError' ? error.message : t('response')),
       });
     } finally {
       if (requests.get(id) === controller) requests.delete(id);

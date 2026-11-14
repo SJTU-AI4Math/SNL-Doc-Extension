@@ -24,6 +24,7 @@ import { installPointerSyncHost } from './pointerSyncHost';
 import { createPointerHostDriver } from './pointerSyncDriver';
 import * as snlDoc from './snlDoc';
 import { firstWorkspaceFolder } from './panelUtil';
+import { bindWorkspaceSource, selectWorkspaceSource } from './workspaceSource';
 import { initialize_preferences_host } from './preferencesHost';
 import { installSnlDocContextKey } from './snlDocContext';
 import { checkDataVersion, repairData } from './dataMigrationCommands';
@@ -109,7 +110,12 @@ const UI_MESSAGES = defineHostMessages(
     navigationEntryKind: 'Entry Kind',
     navigationMacroKind: 'Macro Kind',
     navigationInfoviewRoot: 'Open Infoview root',
-    navigationGlobalGraph: 'Open global graph'
+    navigationGlobalGraph: 'Open global graph',
+    sourceNoFolder: 'Open a workspace folder before choosing an SNL data source.',
+    sourceCurrent: 'Current SNL data source',
+    sourcePrompt: 'Choose the workspace folder SNL should read and write',
+    sourceReload: 'Switch the SNL data source and reload the window? Save any SNL panel drafts before switching.',
+    sourceChange: 'Switch and Reload'
   },
   {
     initNoWorkspace: 'SNL 初始化需要打开文件夹或工作区。',
@@ -188,7 +194,12 @@ const UI_MESSAGES = defineHostMessages(
     navigationEntryKind: '条目类型',
     navigationMacroKind: '宏类型',
     navigationInfoviewRoot: '打开 Infoview 根页面',
-    navigationGlobalGraph: '打开全局图谱'
+    navigationGlobalGraph: '打开全局图谱',
+    sourceNoFolder: '请先打开工作区文件夹，再选择 SNL 数据源。',
+    sourceCurrent: '当前 SNL 数据源',
+    sourcePrompt: '选择 SNL 要读写的工作区文件夹',
+    sourceReload: '切换 SNL 数据源并重新加载窗口？请先保存 SNL 面板中的草稿。',
+    sourceChange: '切换并重新加载'
   }
 );
 
@@ -283,9 +294,16 @@ export function activate(context: vscode.ExtensionContext): void {
   // shows up on the same timeline instead of being invisible.
   refreshTraceEnabled();
   const activation = startTrace('extension:activate');
+  bindWorkspaceSource(context.workspaceState);
   initialize_preferences_host(context);
   installPointerSyncHost(context, createPointerHostDriver());
   const t = hostMessage;
+  context.subscriptions.push(vscode.commands.registerCommand('snlDoc.selectWorkspaceSource', () =>
+    selectWorkspaceSource(context.workspaceState, {
+      noFolder: t('sourceNoFolder'), current: t('sourceCurrent'), prompt: t('sourcePrompt'),
+      reload: t('sourceReload'), change: t('sourceChange'),
+    })
+  ));
   // Drives the `when` clause of the editor-title 🐱 navigation button.
   installSnlDocContextKey(context.subscriptions);
   context.subscriptions.push({
@@ -1032,10 +1050,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const createMacroPickPackage = vscode.commands.registerCommand(
     'snlDoc.createMacroPickPackage',
     async () => {
-      const rootUri = (() => {
-        const folders = vscode.workspace.workspaceFolders;
-        return folders && folders.length > 0 ? folders[0].uri : undefined;
-      })();
+      const rootUri = firstWorkspaceFolder();
       if (!rootUri) {
         void vscode.window.showErrorMessage(t('createMacroNoWorkspace'));
         return;

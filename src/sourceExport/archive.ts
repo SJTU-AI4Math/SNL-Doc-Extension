@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { TextDecoder } from 'node:util';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { matchesPathFileIdentity } from '../fileIdentity';
 import { normalizeEntryPointer } from '../pointerSync/schema';
 import { compilePointerScope } from '../pointerSync/scope';
 import { resolvePointerTextAsync } from '../pointerSync/resolve';
@@ -23,7 +24,8 @@ const sha = (value: string | Uint8Array) => createHash('sha256').update(value).d
 const json = (value: unknown) => JSON.stringify(value);
 const receipts = new WeakMap<SourcePreview, { input: string; scan: string; payload: string }>();
 const within = (root: string, file: string) => { const rel = path.relative(root, file); return rel === '' || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel)); };
-const fingerprint = (s: BigIntStats) => [s.dev, s.ino, s.mode, s.size, s.mtimeNs, s.ctimeNs, s.nlink].join(':');
+const fileMetadata = (s: BigIntStats) => [s.mode, s.size, s.mtimeNs, s.ctimeNs, s.nlink].join(':');
+const fingerprint = (s: BigIntStats) => `${s.dev}:${s.ino}:${fileMetadata(s)}`;
 const identity = (s: BigIntStats) => `${s.dev}:${s.ino}`;
 // Directory membership is inventoried separately. Output staging must not invalidate
 // a source snapshot merely by changing an ancestor directory's timestamps/link count.
@@ -208,7 +210,10 @@ export async function captureSourceSnapshot(input: SourceCaptureInput): Promise<
     const handle = await fs.open(node.real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch(() => { throw new SourcePreflightError('Source changed or cannot be opened safely'); });
     let bytes: Buffer;
     try {
-      if (fingerprint(await handle.stat({ bigint: true })) !== fingerprint(node.stat)) throw new SourcePreflightError('Source changed before read');
+      const opened = await handle.stat({ bigint: true });
+      if (!matchesPathFileIdentity(node.stat, opened) || fileMetadata(node.stat) !== fileMetadata(opened)) {
+        throw new SourcePreflightError('Source changed before read');
+      }
       const parts: Buffer[] = []; let length = 0;
       while (true) {
         check(); const block = Buffer.alloc(Math.min(65536, limit - length + 1));
@@ -234,7 +239,7 @@ export async function captureSourceSnapshot(input: SourceCaptureInput): Promise<
       const after = await handle.stat({ bigint: true });
       const realAfter = await fs.realpath(path.join(root, node.name));
       const statAfter = await fs.stat(path.join(root, node.name), { bigint: true });
-      if (node.real !== realAfter || fingerprint(node.stat) !== fingerprint(after) || fingerprint(node.stat) !== fingerprint(statAfter)) throw new SourcePreflightError('Source changed during read');
+      if (node.real !== realAfter || fingerprint(opened) !== fingerprint(after) || fingerprint(node.stat) !== fingerprint(statAfter)) throw new SourcePreflightError('Source changed during read');
     } catch (error) {
       if (error instanceof SourcePreflightError) throw error;
       throw new SourcePreflightError('Source changed or read failed');

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Production CreateMacro bundle + real Linux publisher + official canonical CLI.
+// Production CreateMacro bundle + real platform publisher + canonical CLI.
 // This is a browser/host-seam gate, not an installed VS Code host certification.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -17,7 +17,9 @@ const snl = process.env.SNL_CLI ?? 'snl';
 const receipt = { workspace, cli: snl, operations: [], assertions: [], platform: process.platform };
 function cli(args, input, expectOk = true) {
   const command = [...args, '--root', workspace, '--json', ...(input ? ['--input', '-'] : [])];
-  const run = spawnSync(snl, command, { encoding: 'utf8', input: input ? JSON.stringify(input) : undefined });
+  const run = /\.mjs$/i.test(snl)
+    ? spawnSync(process.execPath, [snl, ...command], { encoding: 'utf8', input: input ? JSON.stringify(input) : undefined })
+    : spawnSync(snl, command, { encoding: 'utf8', input: input ? JSON.stringify(input) : undefined });
   if (run.error) throw run.error;
   const response = JSON.parse(run.stdout);
   receipt.operations.push({ command, exit: run.status, response });
@@ -113,10 +115,10 @@ const server = createServer(async (req, res) => {
 });
 await new Promise(resolveReady => server.listen(0, '127.0.0.1', resolveReady));
 const chromePath = [process.env.SNL_CHROMIUM_PATH,
-  resolve(process.env.HOME, '.cache/ms-playwright/chromium-1234/chrome-linux64/chrome'), '/usr/bin/chromium'].find(p => p && existsSync(p));
+  resolve(process.env.HOME || '', '.cache/ms-playwright/chromium-1234/chrome-linux64/chrome'), '/usr/bin/chromium'].find(p => p && existsSync(p));
 assert.ok(chromePath, 'Set SNL_CHROMIUM_PATH');
 const profile = mkdtempSync(resolve(evidence, 'chrome-'));
-const chrome = spawn(chromePath, ['--headless=new', '--no-sandbox', '--no-zygote', '--renderer-process-limit=1',
+const chrome = spawn(chromePath, ['--headless=new', '--no-sandbox', '--disable-crash-reporter', '--no-zygote', '--renderer-process-limit=1',
   '--disable-dev-shm-usage', '--disable-gpu', '--remote-debugging-port=0', '--no-first-run',
   '--no-default-browser-check', '--user-data-dir=' + profile, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
 let endpoint = '', stderr = '';
@@ -142,7 +144,7 @@ async function connect(url) {
   return new Cdp(socket);
 }
 const delay = ms => new Promise(done => setTimeout(done, ms));
-let page;
+let page, browser;
 async function evaluate(expression) {
   const r = await page.call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
   if (r.exceptionDetails) throw Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
@@ -165,7 +167,7 @@ function assetSnapshot() {
 try {
   for (let i = 0; i < 160 && !endpoint; i++) { if (chrome.exitCode !== null) break; await delay(25); }
   assert.ok(endpoint, stderr);
-  const browser = await connect(endpoint);
+  browser = await connect(endpoint);
   const { targetId } = await browser.call('Target.createTarget', { url: 'about:blank' });
   const targets = await fetch(`http://127.0.0.1:${new URL(endpoint).port}/json/list`).then(r => r.json());
   page = await connect(targets.find(t => t.id === targetId).webSocketDebuggerUrl);
@@ -291,11 +293,25 @@ try {
   console.log(JSON.stringify({ status: receipt.status, assertions: receipt.assertions, workspace }, null, 2));
 } catch (error) { receipt.status = 'FAIL'; receipt.error = String(error.stack ?? error); throw error; }
 finally {
+  if (browser && chrome.exitCode === null)
+    await Promise.race([browser.call('Browser.close').catch(() => undefined), delay(1500)]);
   for (const socket of sockets) socket.close();
-  if (chrome.exitCode === null) { chrome.kill('SIGTERM'); await Promise.race([new Promise(done => chrome.once('exit', done)), delay(3000)]); }
-  if (chrome.exitCode === null) { chrome.kill('SIGKILL'); await new Promise(done => chrome.once('exit', done)); }
-  await new Promise(done => server.close(done));
-  rmSync(profile, { recursive: true, force: true });
+  const browserRunning = () => chrome.exitCode === null && chrome.signalCode === null;
+  const stopBrowser = async signal => {
+    if (!browserRunning()) return;
+    await Promise.race([new Promise(done => {
+      chrome.once('exit', done);
+      chrome.kill(signal);
+    }), delay(3000)]);
+  };
+  await stopBrowser('SIGTERM');
+  await stopBrowser('SIGKILL');
+  await new Promise(done => { server.close(done); server.closeAllConnections(); });
+  try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+  catch (error) {
+    if (process.platform !== 'win32' || !['EBUSY', 'EPERM', 'ENOTEMPTY'].includes(error.code)) throw error;
+    console.warn('Windows browser still holds its temporary profile:', profile);
+  }
   receipt.processClosure = { chromeExit: chrome.exitCode, chromeSignal: chrome.signalCode, serverClosed: !server.listening };
   writeFileSync(resolve(evidence, 'receipt.json'), JSON.stringify(receipt, null, 2) + '\n');
 }

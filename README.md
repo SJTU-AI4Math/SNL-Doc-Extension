@@ -10,6 +10,11 @@ The extension ships separate reading, management, search, graph, authoring,
 and HTML-export surfaces; see [`docs/extension-feature-inventory.md`](docs/extension-feature-inventory.md)
 for the current command and panel inventory.
 
+In a multi-root VS Code workspace, run **SNL: Select Workspace Data Source**
+to choose the folder containing the data you want to read or edit. The choice
+is saved for that workspace and takes effect after reloading the window.
+Save open SNL panel drafts before switching.
+
 ## Install a release
 
 Download the `.vsix` file from the matching GitHub Release. In VS Code, open

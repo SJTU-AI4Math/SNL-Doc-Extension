@@ -88,18 +88,20 @@ const followingNodeFs = {
 };
 
 describe('cacheWorkspaceAsset', () => {
-  it('rejects a local assets-root symlink even when the filesystem provider follows it', async () => {
+  it.each(['assets', '.SNL_Doc'])('rejects a local %s symlink even when the filesystem provider follows it', async linked => {
     const temp = await nodeFs.mkdtemp(join(tmpdir(), 'snl-asset-root-link-'));
     try {
       const workspace = join(temp, 'workspace');
       const outside = join(temp, 'outside');
       const cache = join(temp, 'cache');
-      await nodeFs.mkdir(join(workspace, '.SNL_Doc'), { recursive: true });
-      await nodeFs.mkdir(outside, { recursive: true });
-      await nodeFs.writeFile(join(outside, 'secret.png'), new Uint8Array([9]));
+      const redirect = linked === 'assets' ? join(workspace, '.SNL_Doc', 'assets') : join(workspace, '.SNL_Doc');
+      const outsideAssets = linked === 'assets' ? outside : join(outside, 'assets');
+      await nodeFs.mkdir(join(redirect, '..'), { recursive: true });
+      await nodeFs.mkdir(outsideAssets, { recursive: true });
+      await nodeFs.writeFile(join(outsideAssets, 'secret.png'), new Uint8Array([9]));
       await nodeFs.symlink(
         outside,
-        join(workspace, '.SNL_Doc', 'assets'),
+        redirect,
         process.platform === 'win32' ? 'junction' : 'dir'
       );
       const followingFs = {

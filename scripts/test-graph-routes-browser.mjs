@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 export async function verifyGraphRoutes({evaluate,wait,screenshot,page,evidence}){
  const settle=()=>new Promise(r=>setTimeout(r,100));
  const select=async(label,value)=>{await evaluate(`(()=>{const s=document.querySelector('select[aria-label="${label}"]');s.value=${JSON.stringify(value)};s.dispatchEvent(new Event('change',{bubbles:true}));})()`);await settle();};
- const geometry=()=>evaluate(`(()=>{const vp=document.querySelector('[data-graph-viewport]');const nodes={};for(const n of document.querySelectorAll('[data-node-id]')){const s=n.querySelector(':scope [data-node-paint] > rect,:scope [data-node-paint] > circle');const b=s.getBBox(),m=vp.getCTM().inverse().multiply(s.getCTM());const p=new DOMPoint(b.x+b.width/2,b.y+b.height/2).matrixTransform(m);nodes[n.dataset.nodeId]={x:p.x,y:p.y};}const c=vp.closest('svg').getAttribute('data-radial-center');const center=c?c.match(/-?\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?/gi).map(Number):null;const edges=[...vp.querySelectorAll('path[marker-end]')].map(p=>{const g=p.parentElement;const e=window.__fixture.edges.find(e=>e.id===g.dataset.edgeId||g.getAttribute('aria-label')==='Relationship '+e.label+': '+e.from+' to '+e.to);return {id:e?.id,from:e?.from,to:e?.to,d:p.getAttribute('d'),arrow:p.getAttribute('marker-end'),opacity:getComputedStyle(g).opacity,stroke:p.getAttribute('stroke-opacity'),pointer:getComputedStyle(g).pointerEvents};});return {nodes,center,edges};})()`);
+ const geometry=()=>evaluate(`(()=>{const vp=document.querySelector('[data-graph-viewport]');const nodes={};for(const n of document.querySelectorAll('[data-node-id]')){const s=n.querySelector(':scope [data-node-paint] > rect,:scope [data-node-paint] > circle');const b=s.getBBox(),m=vp.getCTM().inverse().multiply(s.getCTM());const p=new DOMPoint(b.x+b.width/2,b.y+b.height/2).matrixTransform(m);nodes[n.dataset.nodeId]={x:p.x,y:p.y,w:b.width*m.a,h:b.height*m.d};}const c=vp.closest('svg').getAttribute('data-radial-center');const center=c?c.match(/-?\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?/gi).map(Number):null;const edges=[...vp.querySelectorAll('path[marker-end]')].map(p=>{const g=p.parentElement;const e=window.__fixture.edges.find(e=>e.id===g.dataset.edgeId||g.getAttribute('aria-label')==='Relationship '+e.label+': '+e.from+' to '+e.to);return {id:e?.id,from:e?.from,to:e?.to,d:p.getAttribute('d'),arrow:p.getAttribute('marker-end'),opacity:getComputedStyle(g).opacity,stroke:p.getAttribute('stroke-opacity'),pointer:getComputedStyle(g).pointerEvents};});return {nodes,center,edges};})()`);
  const parse=d=>{const v=d.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi).map(Number);assert.ok(v.every(Number.isFinite));assert.equal((v.length-2)%6,0);let start={x:v[0],y:v[1]};const segments=[];for(let i=2;i<v.length;i+=6){const p=[start,{x:v[i],y:v[i+1]},{x:v[i+2],y:v[i+3]},{x:v[i+4],y:v[i+5]}];segments.push(p);start=p[3];}return segments;};
  const vector=(a,b)=>({x:b.x-a.x,y:b.y-a.y});
  const cross=(a,b)=>a.x*b.y-a.y*b.x;
@@ -33,6 +33,17 @@ export async function verifyGraphRoutes({evaluate,wait,screenshot,page,evidence}
   if(packing==='rings'){await evaluate(`document.querySelector('button[title="Expand filters"]')?.click()`);await settle();await select('Layer packing',packing);}
   await select('Layout',mode);const g=await geometry();assert.equal(g.edges.length,expectedEdgeCount);const portSigns=[];
   for(const e of g.edges){assert.ok(e.id);const ss=parse(e.d),first=ss[0],last=ss.at(-1),u=vector(first[0],first[1]),v=vector(last[2],last[3]);assert.ok(length(u)>0&&length(v)>0);assert.equal(e.arrow,'url(#snl-graph-arrow)');if(e.from===e.to){assert.ok(ss.length>=2,'self loop stays visible');continue;}
+   for (const s of ss) for (let i=0;i<=64;i++) {
+    const p=sample(s,i/64);
+    for (const [id,n] of Object.entries(g.nodes)) if(id!==e.from&&id!==e.to)
+      assert.ok(Math.abs(p.x-n.x)>=n.w/2||Math.abs(p.y-n.y)>=n.h/2,`${e.id} crosses ${id}`);
+   }
+   // Detours are straight cubic segments; radial port contracts below apply
+   // to the default curved route when there is no obstruction.
+   if (ss.every(s => {
+    const a=vector(s[0],s[3]), b=vector(s[0],s[1]), c=vector(s[0],s[2]);
+    return length({x:a.x-3*b.x,y:a.y-3*b.y})<1e-6 && length({x:2*a.x-3*c.x,y:2*a.y-3*c.y})<1e-6;
+   })) continue;
    if(mode==='rectangle'){assert.equal(ss.length,1,'rectangle must have one cubic, no dummy anchors');assert.ok(Math.abs(u.x)<1e-7&&Math.abs(v.x)<1e-7,'rectangle endpoint tangents must be vertical');}
    else {assert.ok(g.center?.length===2,'radial center not exposed');const c={x:g.center[0],y:g.center[1]},a=vector(c,g.nodes[e.from]),b=vector(c,g.nodes[e.to]);assert.ok(Math.abs(cross(a,u))<=1e-5*length(a)*length(u),'departure is not radial');assert.ok(Math.abs(cross(b,v))<=1e-5*length(b)*length(v),'arrival is not radial');
     const dot=(x,y)=>x.x*y.x+x.y*y.y,dr=length(b)-length(a);
@@ -45,7 +56,7 @@ export async function verifyGraphRoutes({evaluate,wait,screenshot,page,evidence}
     let prev=Math.atan2(first[0].y-c.y,first[0].x-c.x),turn=0;const radii=[],turns=[];for(const s of ss)for(let i=1;i<=32;i++){const p=sample(s,i/32),angle=Math.atan2(p.y-c.y,p.x-c.x);let delta=Math.atan2(Math.sin(angle-prev),Math.cos(angle-prev));turn+=delta;turns.push(delta);prev=angle;radii.push(Math.hypot(p.x-c.x,p.y-c.y));}assert.ok(Math.abs(turn)<=Math.PI+0.02,'route takes long angular side');assert.ok(Math.min(...radii)>0.01,'route crosses center');assert.ok(turns.every(d=>d*Math.sign(turn)>=-1e-7),'angular backtracking');assert.ok(turns.reduce((s,d)=>s+Math.abs(d),0)<=Math.PI+0.02,'total angular travel exceeds short side');
    }
   }
-  if(mode!=='rectangle'){assert.ok(portSigns.includes(1)&&portSigns.includes(-1),'fixture must check both directed radial signs');g.signedPortDirections=portSigns;}
+  if(mode!=='rectangle'){assert.ok(portSigns.length,'fixture must exercise an unobstructed radial route');g.signedPortDirections=portSigns;}
   const key=mode+(packing==='rings'?'-rings':'');evidence.routes[key]=g;await screenshot('routes-'+key);
  }
  // Real pointer hit for node selection; hidden paths must neither paint nor hit.

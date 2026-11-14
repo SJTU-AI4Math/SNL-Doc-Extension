@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { getWorkspaceSource } from './workspaceSource';
 import { type Trace } from './trace';
 import * as fs from 'fs';
 import { extension_preferences_runtime } from './preferences';
@@ -165,9 +166,9 @@ export function webviewLocalResourceRoots(extensionUri: vscode.Uri): vscode.Uri[
   return roots;
 }
 
-/** Helper: the first workspace folder URI, or undefined when none open. */
+/** Active SNL source (the first folder by default). */
 export function firstWorkspaceFolder(): vscode.Uri | undefined {
-  return vscode.workspace.workspaceFolders?.[0]?.uri;
+  return getWorkspaceSource();
 }
 
 /**

@@ -75,9 +75,7 @@ function dashboardT() {
  *
  * Auto-refresh: a `FileSystemWatcher` on `.SNL_Doc/(config|entries).json`
  * and `.SNL_Doc/libraries/**​/graph.json` re-reads the overview and
- * pushes it to the webview. The watcher is created once per workspace folder
- * — multi-root projects only watch the first folder for now (matches the
- * single-folder assumption shared with init/create).
+ * pushes it to the webview. The watcher follows the active SNL workspace source.
  *
  * Message protocol with the webview (`dashboard.js`):
  *  - in  : `{ type: 'ready' }` (initial pull)

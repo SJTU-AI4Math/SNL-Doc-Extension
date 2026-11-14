@@ -60,7 +60,7 @@ const template = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g
 describe('writeWorkspaceSvgMacroAssets', () => {
   // IG-TEST-PHASE: .source./.next are not writable paths with O_TMPFILE.
   // The wrapper brackets the real kernel open, not merely the API invocation.
-  it.each([
+  it.skipIf(process.platform !== 'linux').each([
     ['svg', 'before', false], ['svg', 'after', false],
     ['svg', 'before', true], ['svg', 'after', true],
     ['ancestor', 'before', true], ['ancestor', 'after', true], ['svg', 'control', true]
@@ -190,7 +190,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
       }
     }
   });
-  it('phase-faithful corruption immediately after the real manifest link rolls back publication', async () => {
+  it.skipIf(process.platform !== 'linux')('phase-faithful corruption immediately after the real manifest link rolls back publication', async () => {
     const root = await workspace();
     const originalSpawn = childProcess.spawnSync;
     const events: string[] = [];
@@ -256,7 +256,30 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     }
   });
 
-  it('surfaces authority close failures instead of silently discarding them', async () => {
+  it.runIf(process.platform === 'win32')('reopens a saved SVG and rolls back when a foreign manifest blocks publication', async () => {
+    const root = await workspace();
+    const args = { workspaceRoot: root as never, slug: 'diagram', sourceSvg: source,
+      templateSvg: template, accessibilityLabel: 'Diagram', operations: [] };
+    const saved = await writeWorkspaceSvgMacroAssets(args);
+    expect(await writeWorkspaceSvgMacroAssets(args)).toEqual(saved);
+    const { readWorkspaceSvgSource } = await import('./workspaceAssets');
+    expect(await readWorkspaceSvgSource({ workspaceRoot: root as never, relativePath: saved.sourcePath,
+      expectedRevision: saved.projection.editor.source_revision })).toBe(source);
+
+    const conflictRoot = await workspace();
+    const svgDirectory = join(conflictRoot.fsPath, '.SNL_Doc', 'assets', 'svg');
+    await fs.mkdir(svgDirectory, { recursive: true });
+    const name = saved.manifestPath.split('/').at(-1)!;
+    await fs.writeFile(join(svgDirectory, name), 'foreign manifest');
+    await expect(writeWorkspaceSvgMacroAssets({ ...args, workspaceRoot: conflictRoot as never }))
+      .rejects.toThrow(/read-only/i);
+    expect(await fs.readdir(svgDirectory)).toEqual([name]);
+    expect(await fs.readFile(join(svgDirectory, name), 'utf8')).toBe('foreign manifest');
+    expect(await fs.readdir(join(conflictRoot.fsPath, '.SNL_Doc'))).not.toContain('.data-write.lock');
+    await expect(writeWorkspaceSvgMacroAssets({ ...args, slug: 'CON' })).rejects.toThrow(/slug/i);
+  });
+
+  it.skipIf(process.platform !== 'linux')('surfaces authority close failures instead of silently discarding them', async () => {
     const root = await workspace();
     const originalOpen = fs.open.bind(fs);
     let injected = false;
@@ -278,7 +301,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     })).rejects.toThrow(/authority handles failed to close/);
   });
 
-  it('closes a directory authority handle when its first fstat fails', async () => {
+  it.skipIf(process.platform !== 'linux')('closes a directory authority handle when its first fstat fails', async () => {
     const root = await workspace();
     const originalOpen = fs.open.bind(fs);
     let closed = false;
@@ -300,7 +323,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     expect(closed).toBe(true);
   });
 
-  it('closes an anonymous publication handle when its first fstat fails', async () => {
+  it.skipIf(process.platform !== 'linux')('closes an anonymous publication handle when its first fstat fails', async () => {
     const root = await workspace();
     const originalOpen = fs.open.bind(fs);
     let closed = false;
@@ -320,7 +343,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     expect(closed).toBe(true);
   });
 
-  it('keeps the writable inode anonymous until atomic no-replace installation', async () => {
+  it.skipIf(process.platform !== 'linux')('keeps the writable inode anonymous until atomic no-replace installation', async () => {
     const root = await workspace();
     const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
     const sourceTarget = join(svgRoot, `anonymous.source.${createHash('sha256').update(source).digest('hex')}.svg`);
@@ -348,7 +371,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     expect((await fs.stat(join(root.fsPath, '.SNL_Doc', 'assets', result.sourcePath), { bigint: true })).ino).toBe(anonymousInode);
   });
 
-  it('revalidates all canonical files after the directory sync gap', async () => {
+  it.skipIf(process.platform !== 'linux')('revalidates all canonical files after the directory sync gap', async () => {
     const root = await workspace();
     const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
     const sourceTarget = join(svgRoot, `sync-race.source.${createHash('sha256').update(source).digest('hex')}.svg`);
@@ -376,7 +399,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     })).rejects.toThrow(/bytes do not match|rollback/i);
   });
 
-  it('retains rollback ownership when anonymous close fails after linking', async () => {
+  it.skipIf(process.platform !== 'linux')('retains rollback ownership when anonymous close fails after linking', async () => {
     const root = await workspace();
     const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
     const sourceTarget = join(svgRoot, `close-owned.source.${createHash('sha256').update(source).digest('hex')}.svg`);
@@ -402,7 +425,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     expect((await fs.readdir(svgRoot)).some((entry) => entry.startsWith('.snl-quarantine-'))).toBe(true);
   });
 
-  it('syncs the held SVG directory before acknowledging the manifest commit point', async () => {
+  it.skipIf(process.platform !== 'linux')('syncs the held SVG directory before acknowledging the manifest commit point', async () => {
     const root = await workspace();
     const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
     const originalOpen = fs.open.bind(fs);
@@ -468,7 +491,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     })).rejects.toThrow(/slot|empty/i);
   });
 
-  it('keeps descendant creation on the held .SNL_Doc inode after an ancestor swap', async () => {
+  it.skipIf(process.platform !== 'linux')('keeps descendant creation on the held .SNL_Doc inode after an ancestor swap', async () => {
     const root = await workspace();
     const snlDoc = join(root.fsPath, '.SNL_Doc');
     const movedSnlDoc = join(root.fsPath, '.SNL_Doc-held');
@@ -504,7 +527,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
       accessibilityLabel: 'x', operations: []
     })).rejects.toThrow(/symbolic link/i);
   });
-  it('fails closed when the SVG directory changes after a destination file opens', async () => {
+  it.skipIf(process.platform !== 'linux')('fails closed when the SVG directory changes after a destination file opens', async () => {
     const root = await workspace();
     const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
     const movedRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg-before-race');
@@ -530,7 +553,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     await fs.rename(movedRoot, svgRoot);
   });
 
-  it('quarantines rather than deletes a pathname replacement during rollback', async () => {
+  it.skipIf(process.platform !== 'linux')('quarantines rather than deletes a pathname replacement during rollback', async () => {
     const root = await workspace();
     const originalLstat = fs.lstat.bind(fs);
     const originalRename = fs.rename.bind(fs);
@@ -568,7 +591,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     })).rejects.toThrow(/locked/i);
   });
 
-  it('rejects reserved Windows device slugs and pre-existing destination symlinks', async () => {
+  it.skipIf(process.platform !== 'linux')('rejects reserved Windows device slugs and pre-existing destination symlinks', async () => {
     const root = await workspace();
     await expect(writeWorkspaceSvgMacroAssets({
       workspaceRoot: root as never, slug: 'CON', sourceSvg: source, templateSvg: template,
@@ -587,7 +610,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     })).rejects.toThrow(/symbolic link/i);
   });
 
-  it('fails closed if the SVG directory changes while the manifest handle is verified', async () => {
+  it.skipIf(process.platform !== 'linux')('fails closed if the SVG directory changes while the manifest handle is verified', async () => {
     const root = await workspace();
     const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
     const movedRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg-during-verify');
@@ -618,7 +641,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     await fs.rename(movedRoot, svgRoot);
   });
 
-  it('rejects a source pathname replacement during the final three-file authority pass', async () => {
+  it.skipIf(process.platform !== 'linux')('rejects a source pathname replacement during the final three-file authority pass', async () => {
     const root = await workspace();
     const originalOpen = fs.open.bind(fs);
     const originalRename = fs.rename.bind(fs);
@@ -642,7 +665,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     expect(preserved).toContain('different source bytes');
   });
 
-  it('rejects mode 0444 instead of weakening the exact immutable 0400 contract', async () => {
+  it.skipIf(process.platform !== 'linux')('rejects mode 0444 instead of weakening the exact immutable 0400 contract', async () => {
     const root = await workspace();
     const originalOpen = fs.open.bind(fs);
     let changed = false;
@@ -659,7 +682,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     })).rejects.toThrow(/0400|mode|rollback/i);
   });
 
-  it('post-write verifies the manifest and rolls back a corrupted publication', async () => {
+  it.skipIf(process.platform !== 'linux')('post-write verifies the manifest and rolls back a corrupted publication', async () => {
     const root = await workspace();
     const originalOpen = fs.open.bind(fs);
     let corrupted = false;
@@ -680,7 +703,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     expect((await fs.readdir(svgRoot)).filter((name) => name.startsWith('corrupt.'))).toEqual([]);
   });
 
-  it('rolls back newly-created immutable files when manifest publication fails', async () => {
+  it.skipIf(process.platform !== 'linux')('rolls back newly-created immutable files when manifest publication fails', async () => {
     const root = await workspace();
     const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
     await fs.mkdir(svgRoot, { recursive: true });

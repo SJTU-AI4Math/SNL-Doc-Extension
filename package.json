@@ -22,6 +22,10 @@
   "contributes": {
     "commands": [
       {
+        "command": "snlDoc.selectWorkspaceSource",
+        "title": "%snlDoc.command.selectWorkspaceSource%"
+      },
+      {
         "command": "snlDoc.revealNearestEntry",
         "title": "%snlDoc.command.revealNearestEntry%"
       },

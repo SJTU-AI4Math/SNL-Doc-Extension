@@ -30,8 +30,21 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); document.documentElement.lang = ''; });
 
-describe('rendered endpoint routes', () => {
-  it.each(['bands', 'rings'])('%s passes the actual center, preserves arrows/backedges/identity and edge editing', packing => {
+function entersCard(controls: number[], card: ReturnType<typeof anchor>) {
+  for (let i = 0; i + 7 < controls.length; i += 6) {
+    for (let step = 0; step <= 100; step++) {
+      const t = step / 100, s = 1 - t;
+      const at = (j: number) => s ** 3 * controls[i + j] + 3 * s * s * t * controls[i + j + 2] +
+        3 * s * t * t * controls[i + j + 4] + t ** 3 * controls[i + j + 6];
+      const x = at(0), y = at(1);
+      if (x > card.x && x < card.x + card.w && y > card.y && y < card.y + card.h) return true;
+    }
+  }
+  return false;
+}
+
+describe('rendered routes', () => {
+  it.each(['bands', 'rings'])('%s routes past other cards and preserves arrows/backedges/identity and edge editing', packing => {
     render(<SnlGraphApp />);
     act(() => window.dispatchEvent(new MessageEvent('message', { data: graph })));
     control('Nodes', 'always-title');
@@ -54,10 +67,15 @@ describe('rendered endpoint routes', () => {
         expect([group.getAttribute('data-from'), group.getAttribute('data-to')]).toEqual([e.from, e.to]);
         expect(path.getAttribute('marker-end')).toBe('url(#snl-graph-arrow)');
         expect(path.getAttribute('stroke-dasharray')).toBe(e.id === 'ca' || e.id === 'aa' ? '5 4' : null);
-        const d = edgePath(anchor(e.from), anchor(e.to), [{ x: -1e9, y: 1e9 }], { fromShape: 'title', toShape: 'title' }, context).d;
-        expect(path.getAttribute('d')).toBe(d);
+        const baseline = edgePath(anchor(e.from), anchor(e.to), [], { fromShape: 'title', toShape: 'title' }, context).d;
+        const d = path.getAttribute('d')!;
         const controls = values(d);
-        if (origin && e.from !== e.to) {
+        if (e.from !== e.to) {
+          const others = graph.nodes.filter(n => n.id !== e.from && n.id !== e.to).map(n => anchor(n.id));
+          expect(others.some(card => entersCard(controls, card))).toBe(false);
+          if (others.some(card => entersCard(values(baseline), card))) expect(d).not.toBe(baseline);
+        }
+        if (origin && e.from !== e.to && d === baseline) {
           const a = anchor(e.from), b = anchor(e.to);
           const ra = [a.x + a.w / 2 - origin.x, a.y + a.h / 2 - origin.y];
           const rb = [b.x + b.w / 2 - origin.x, b.y + b.h / 2 - origin.y];

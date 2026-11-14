@@ -63,7 +63,8 @@ vi.mock('vscode', async () => {
   const FileType = { File: 1, Directory: 2 };
 
 
-  const payloadFor = (path: string): string => {
+  const payloadFor = (filename: string): string => {
+    const path = filename.replaceAll('\\', '/');
     const name = path.split('/').pop() ?? '';
     if (path.includes('/term_macros/')) {
       const bare = name.replace(/\.json$/, '');

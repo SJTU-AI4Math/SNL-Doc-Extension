@@ -270,7 +270,7 @@ html[data-snl-motion='reduced'] .snl-btn:active:not(:disabled):not([aria-disable
 /* A nested collapsible already sits inside its parent's body padding; it only
    needs its own gutter, not another indent step. */
 .snl-collapsible .snl-collapsible { padding-left:20px; }
-.snl-block-enumerate > li {
+:is(.snl-block-enumerate, .snl-block-list) > li:has(> .snl-enumerate-item-marker) {
   display:grid;
   grid-template-columns:max-content minmax(0,1fr);
   align-items:start;

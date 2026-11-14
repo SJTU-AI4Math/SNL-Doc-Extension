@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { lstat, open, readFile, unlink, type FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
+import { matchesPathFileIdentity } from './fileIdentity';
 
 export const DATA_WRITE_LOCK_FILENAME = '.data-write.lock';
 
@@ -54,7 +55,7 @@ async function ownsCanonicalLock(
     try {
       const current = await lstat(path, { bigint: true });
       return current.isFile() && identity.isFile() &&
-        current.dev === identity.dev && current.ino === identity.ino;
+        matchesPathFileIdentity(current, identity);
     } catch (error) {
       if (errorCode(error) === 'ENOENT') return false;
       throw error;

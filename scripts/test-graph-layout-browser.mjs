@@ -61,7 +61,7 @@ const chromePath = [process.env.SNL_CHROMIUM_PATH,
   '/usr/bin/chromium', '/usr/bin/google-chrome'].find(p => p && existsSync(p));
 assert.ok(chromePath, 'set SNL_CHROMIUM_PATH to a Chromium executable');
 const profile = mkdtempSync(resolve(tmpdir(), 'snl-graph-chrome-'));
-const chrome = spawn(chromePath, ['--headless=new', '--no-sandbox', '--disable-gpu', '--no-first-run', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+const chrome = spawn(chromePath, ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-crash-reporter', '--no-first-run', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
 let log = ''; chrome.stderr.on('data', d => { log += d; });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 class Cdp {
@@ -81,7 +81,16 @@ const evidence = { url, mode: process.argv.includes('--near-titles') ? 'near-tit
   bundleSha256: createHash('sha256').update(readFileSync(resolve(bundleDir, 'snlGraph.js'))).digest('hex') };
 try {
   let devtools;
-  for (let i=0;i<200;i++) { devtools=log.match(/DevTools listening on (ws:\/\/\S+)/)?.[1]; if(devtools) break; await sleep(25); }
+  for (let i=0;i<200;i++) {
+    devtools=log.match(/DevTools listening on (ws:\/\/\S+)/)?.[1];
+    if (!devtools) {
+      try {
+        const [port, socket] = readFileSync(resolve(profile, 'DevToolsActivePort'), 'utf8').trim().split(/\r?\n/);
+        if (port && socket) devtools = `ws://127.0.0.1:${port}${socket}`;
+      } catch {}
+    }
+    if(devtools) break; await sleep(25);
+  }
   assert.ok(devtools, log);
   browser=await connect(devtools);
   const { targetId }=await browser.call('Target.createTarget',{url:'about:blank'});
@@ -258,7 +267,13 @@ try {
   writeFileSync(resolve(artifacts,'failure.json'),JSON.stringify({error:String(error),evidence,events:page?.events},null,2));
   throw error;
 } finally {
-  page?.close();browser?.close();chrome.kill('SIGTERM');
+  page?.close();await browser?.call('Browser.close').catch(() => undefined);browser?.close();
+  if (chrome.exitCode === null) chrome.kill('SIGTERM');
   await new Promise(r=>{if(chrome.exitCode!==null)return r();chrome.once('exit',r);setTimeout(()=>{chrome.kill('SIGKILL');r();},2000).unref();});
-  server.close();rmSync(profile,{recursive:true,force:true});
+  server.close();
+  try { rmSync(profile,{recursive:true,force:true,maxRetries:10,retryDelay:100}); }
+  catch (error) {
+    if (process.platform !== 'win32' || error.code !== 'EBUSY') throw error;
+    console.warn('Windows browser still holds its temporary profile:', profile);
+  }
 }

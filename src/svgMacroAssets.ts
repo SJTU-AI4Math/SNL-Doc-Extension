@@ -6,6 +6,7 @@ import type * as vscode from 'vscode';
 const SVG_ASSET_BASE_IDENTITY = 'workspace:.SNL_Doc/assets' as const;
 import { withWorkspaceDataLock } from './workspaceDataLock';
 import { validateSvgTemplateForPersistence } from './svgTemplateHostValidation';
+import { publishWindowsSvgAssets } from './svgMacroAssetsWindows';
 
 const MAX_SVG_BYTES = 1024 * 1024;
 const MAX_MANIFEST_BYTES = 256 * 1024;
@@ -121,7 +122,7 @@ function heldDirectoryPath(handle: Awaited<ReturnType<typeof fs.open>>, fallback
 
 async function openSvgDirectoryAuthority(workspaceRoot: string): Promise<SvgDirectoryAuthority> {
   if (process.platform !== 'linux') {
-    throw new Error('Secure SVG Macro Asset publication requires Linux descriptor-relative filesystem authority.');
+    throw new Error('Secure SVG Macro Asset publication is available on Linux and Windows.');
   }
   const handles: Array<Awaited<ReturnType<typeof fs.open>>> = [];
   try {
@@ -401,6 +402,14 @@ async function writeWorkspaceSvgMacroAssetsUnlocked(
     editor: { source: sourcePath, source_revision: `sha256:${sourceDigest}`, manifest: manifestPath }
   };
 
+  if (process.platform === 'win32') {
+    await publishWindowsSvgAssets(options.workspaceRoot.fsPath, [
+      { name: sourceFile, bytes: sourceBytes },
+      { name: templateFile, bytes: templateBytes },
+      { name: manifestFile, bytes: manifestBytes },
+    ]);
+    return { sourcePath, manifestPath, projection };
+  }
   const authority = await openSvgDirectoryAuthority(options.workspaceRoot.fsPath);
   const { svgRoot, authorityRoot, svgIdentity: svgRootIdentity, svgHandle: directoryHandle } = authority;
   const createdPaths: Array<{ path: string; identity: FileIdentity }> = [];

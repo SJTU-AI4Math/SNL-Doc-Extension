@@ -21,6 +21,18 @@ export interface GraphEdge {
 
 const compareLexically = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
 
+function maxOf<T>(values: Iterable<T>, measure: (value: T) => number, initial = -Infinity): number {
+  let result = initial;
+  for (const value of values) result = Math.max(result, measure(value));
+  return result;
+}
+
+function minOf<T>(values: Iterable<T>, measure: (value: T) => number): number {
+  let result = Infinity;
+  for (const value of values) result = Math.min(result, measure(value));
+  return result;
+}
+
 export interface LaidOutNode {
   id: string;          // real node id (participating rows) or "__dummy_<n>" for virtuals
   isDummy: boolean;
@@ -39,8 +51,7 @@ export interface LaidOutNode {
 
 export interface LaidOutEdge extends GraphEdge {
   isBack: boolean; // was reversed during cycle-break; render dashed
-  /** Internal layout metadata threaded through dummy centers. Endpoint-only
-   *  rendering ignores these points; retain them to preserve node placement. */
+  /** Dummy centers preserve node placement and provide candidate detours. */
   waypoints: { x: number; y: number }[];
 }
 
@@ -231,7 +242,7 @@ export function layout(inputNodes: GraphNode[], inputEdges: GraphEdge[], paramet
     }
     rankFromSink.set(id, r);
   }
-  const maxSinkRank = Math.max(0, ...Array.from(rankFromSink.values()));
+  const maxSinkRank = maxOf(rankFromSink.values(), rank => rank, 0);
   // Flip: layer index counts from top of screen, so sinks (rankFromSink 0)
   // go on the LAST layer. Mixed relations retain the existing ranking semantics.
   const rank = new Map<string, number>();
@@ -381,7 +392,7 @@ export function layout(inputNodes: GraphNode[], inputEdges: GraphEdge[], paramet
     if (layer.length > 1) w += (layer.length - 1) * NODE_GAP_X;
     return w;
   };
-  const maxRowW = Math.max(0, ...layers.map((l) => layerWidth(l)));
+  const maxRowW = maxOf(layers, layerWidth, 0);
   const totalWidth = MARGIN * 2 + maxRowW;
   const totalHeight =
     MARGIN * 2 + layers.length * NODE_H + (layers.length - 1) * LAYER_GAP_Y;
@@ -442,7 +453,7 @@ export function layout(inputNodes: GraphNode[], inputEdges: GraphEdge[], paramet
     const rowWidths = [...rows.values()].map((row) =>
       row.reduce((sum, node) => sum + node.w, 0) + Math.max(0, row.length - 1) * NODE_GAP_X
     );
-    const laneW = Math.max(160, ...rowWidths) + CLUSTER_PADDING_X * 2;
+    const laneW = maxOf(rowWidths, width => width, 160) + CLUSTER_PADDING_X * 2;
     for (const row of rows.values()) {
       row.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
       const rowW = row.reduce((sum, node) => sum + node.w, 0) + Math.max(0, row.length - 1) * NODE_GAP_X;
@@ -537,8 +548,8 @@ function radialLayout(rectangle: Layout, mode: Exclude<GraphLayoutMode, 'rectang
   const xMin = rectangle.clusters[0].x;
   const lastCluster = rectangle.clusters[rectangle.clusters.length - 1];
   const xSpan = lastCluster.x + lastCluster.w - xMin;
-  const yMin = Math.min(...centres.map(p => p.y));
-  const maxLayer = Math.round((Math.max(...centres.map(p => p.y)) - yMin) / (NODE_H + LAYER_GAP_Y));
+  const yMin = minOf(centres, p => p.y);
+  const maxLayer = Math.round((maxOf(centres, p => p.y) - yMin) / (NODE_H + LAYER_GAP_Y));
   const startAngle = -Math.PI / 2 + Math.PI / 24;
   const sweep = 2 * Math.PI - Math.PI / 12;
   const angle = (x: number): number => startAngle + (x - xMin) / xSpan * sweep;
@@ -627,7 +638,7 @@ function radialLayout(rectangle: Layout, mode: Exclude<GraphLayoutMode, 'rectang
       if (next === radius) { clear = true; break; }
       radius = next;
     }
-    if (!clear) radius = Math.max(radius, occupiedOuter + Math.max(...row.map(n => Math.hypot(n.w, n.h) / 2)) + 12);
+    if (!clear) radius = Math.max(radius, occupiedOuter + maxOf(row, n => Math.hypot(n.w, n.h) / 2) + 12);
     layerRadii.push(radius);
     for (const n of row) {
       const card = atRadius(n, radius);
@@ -653,8 +664,8 @@ function radialLayout(rectangle: Layout, mode: Exclude<GraphLayoutMode, 'rectang
     const a = samples[lo], b = samples[hi];
     return a.radius + (x - a.x) / (b.x - a.x) * (b.radius - a.radius);
   };
-  const innerRadius = Math.min(...nodeRadii.values());
-  const extent = Math.max(...rectangle.nodes.map(n => Math.hypot(n.w, n.h) / 2));
+  const innerRadius = minOf(nodeRadii.values(), radius => radius);
+  const extent = maxOf(rectangle.nodes, n => Math.hypot(n.w, n.h) / 2);
   const size = 2 * (occupiedOuter + CLUSTER_HEADER_H + MARGIN);
   const radial: RadialProjection = {
     centerX: size / 2, centerY: size / 2, innerRadius, layerRadii, radiusSamples, packing, maxLayer,
@@ -874,5 +885,159 @@ export function edgePath(
   return {
     d: `M ${p.x} ${p.y} C ${q.x} ${q.y}, ${r.x} ${r.y}, ${t.x} ${t.y}`,
     midX: (start.x + end.x) / 2, midY: (start.y + end.y) / 2
+  };
+}
+
+type Box = { left: number; top: number; right: number; bottom: number };
+type Obstacle = Box & { nodeId: string };
+type ObstacleTree = Box & { children?: [ObstacleTree, ObstacleTree]; cards?: Obstacle[] };
+const ROUTE_PADDING = 4;
+
+function pointBounds(points: EdgePoint[]): Box {
+  const box = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
+  for (const p of points) {
+    box.left = Math.min(box.left, p.x); box.top = Math.min(box.top, p.y);
+    box.right = Math.max(box.right, p.x); box.bottom = Math.max(box.bottom, p.y);
+  }
+  return box;
+}
+
+function obstacleTree(cards: Obstacle[]): ObstacleTree {
+  const box = { left: minOf(cards, c => c.left), top: minOf(cards, c => c.top),
+    right: maxOf(cards, c => c.right), bottom: maxOf(cards, c => c.bottom) };
+  if (cards.length <= 8) return { ...box, cards };
+  const x = box.right - box.left >= box.bottom - box.top;
+  const center = (c: Obstacle) => x ? c.left + c.right : c.top + c.bottom;
+  cards.sort((a, b) => center(a) - center(b) || compareLexically(a.nodeId, b.nodeId));
+  const mid = cards.length >> 1;
+  return { ...box, children: [obstacleTree(cards.slice(0, mid)), obstacleTree(cards.slice(mid))] };
+}
+
+function overlaps(a: Box, b: Box): boolean {
+  return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
+}
+
+/** Clip the segment parameter to the two slabs of an axis-aligned box. */
+function lineHits(a: EdgePoint, b: EdgePoint, box: Box): boolean {
+  let lo = 0, hi = 1;
+  for (const [start, delta, min, max] of [
+    [a.x, b.x - a.x, box.left, box.right], [a.y, b.y - a.y, box.top, box.bottom],
+  ]) {
+    if (delta === 0) { if (start < min || start > max) return false; continue; }
+    const u = (min - start) / delta, v = (max - start) / delta;
+    lo = Math.max(lo, Math.min(u, v)); hi = Math.min(hi, Math.max(u, v));
+    if (lo > hi) return false;
+  }
+  return true;
+}
+
+function interpolate(a: EdgePoint, b: EdgePoint, t: number): EdgePoint {
+  return { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) };
+}
+
+function curveHits([a, b, c, d]: EdgePoint[], box: Box, depth = 0): boolean {
+  // The cubic stays in the convex hull of its controls. Subdivide only when
+  // that hull intersects a card, with a conservative cutoff at small scales.
+  const hull = pointBounds([a, b, c, d]);
+  if (!overlaps(hull, box)) return false;
+  if (depth >= 20 || Math.max(hull.right - hull.left, hull.bottom - hull.top) <= 1 ||
+      (hull.left >= box.left && hull.right <= box.right && hull.top >= box.top && hull.bottom <= box.bottom)) return true;
+  const ab = interpolate(a, b, .5), bc = interpolate(b, c, .5), cd = interpolate(c, d, .5);
+  const u = interpolate(ab, bc, .5), v = interpolate(bc, cd, .5), mid = interpolate(u, v, .5);
+  return curveHits([a, ab, u, mid], box, depth + 1) || curveHits([mid, v, cd, d], box, depth + 1);
+}
+
+function routeLength(route: EdgePoint[]): number {
+  let length = 0;
+  for (let i = 1; i < route.length; i++) length += Math.hypot(route[i].x - route[i - 1].x, route[i].y - route[i - 1].y);
+  return length;
+}
+
+function polylinePath(route: EdgePoint[]): ReturnType<typeof edgePath> {
+  let d = `M ${route[0].x} ${route[0].y}`, remaining = routeLength(route) / 2, middle = route[0];
+  for (let i = 1; i < route.length; i++) {
+    const a = route[i - 1], b = route[i], u = interpolate(a, b, 1 / 3), v = interpolate(a, b, 2 / 3);
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    if (remaining >= 0 && length > 0 && remaining <= length) middle = interpolate(a, b, remaining / length);
+    remaining -= length;
+    d += ` C ${u.x} ${u.y}, ${v.x} ${v.y}, ${b.x} ${b.y}`;
+  }
+  return { d, midX: middle.x, midY: middle.y };
+}
+
+/** Build one obstacle index per layout. Preserve the normal cubic when
+ * clear; for obstructed edges, try dummy centers and route around card corners.
+ * Keep the search bounded for interactive rendering on dense graphs. */
+export function createGraphEdgeRouter(laid: Layout) {
+  let tree: ObstacleTree | undefined;
+  const getTree = () => tree ??= obstacleTree(laid.nodes.filter(n => !n.isDummy).map(n => ({
+    nodeId: n.id, left: n.x - ROUTE_PADDING, top: n.y - ROUTE_PADDING,
+    right: n.x + n.w + ROUTE_PADDING, bottom: n.y + n.h + ROUTE_PADDING,
+  })));
+  const byId = new Map(laid.nodes.map(node => [node.id, node]));
+  const cache = new Map<string, ReturnType<typeof edgePath>>();
+  return (edge: LaidOutEdge, shapes: { fromShape: NodeShape; toShape: NodeShape } = { fromShape: 'title', toShape: 'title' }) => {
+    const key = JSON.stringify([edge.id, shapes.fromShape, shapes.toShape]);
+    const cached = cache.get(key);
+    if (cached) return cached;
+    const reverse = compareLexically(edge.from, edge.to) > 0;
+    const from = byId.get(reverse ? edge.to : edge.from)!, to = byId.get(reverse ? edge.from : edge.to)!;
+    const fromShape = reverse ? shapes.toShape : shapes.fromShape, toShape = reverse ? shapes.fromShape : shapes.toShape;
+    const baseline = () => edgePath(byId.get(edge.from)!, byId.get(edge.to)!, [], shapes, laid);
+    const remember = (value: ReturnType<typeof edgePath>) => { cache.set(key, value); return value; };
+    const hit = (bounds: Box, test: (card: Box) => boolean, branch = getTree()): Obstacle | undefined => {
+      if (!overlaps(bounds, branch)) return;
+      if (branch.children) return hit(bounds, test, branch.children[0]) ?? hit(bounds, test, branch.children[1]);
+      return branch.cards?.find(card => card.nodeId !== from.id && card.nodeId !== to.id && overlaps(bounds, card) && test(card));
+    };
+    const original = baseline();
+    if (from === to || laid.nodes.length < 3) return remember(original);
+    const nums = original.d.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)!.map(Number);
+    const points: EdgePoint[] = [];
+    for (let i = 0; i < nums.length; i += 2) points.push({ x: nums[i], y: nums[i + 1] });
+    let blocked = false;
+    for (let i = 0; i + 3 < points.length; i += 3) {
+      const curve = points.slice(i, i + 4);
+      if (hit(pointBounds(curve), box => curveHits(curve, box))) { blocked = true; break; }
+    }
+    if (!blocked) return remember(original);
+
+    const start = { x: from.x + from.w / 2, y: from.y + from.h / 2 };
+    const end = { x: to.x + to.w / 2, y: to.y + to.h / 2 };
+    const queue: EdgePoint[][] = [[start, end]];
+    if (edge.waypoints.length && edge.waypoints.length <= 64)
+      queue.push([start, ...(reverse ? [...edge.waypoints].reverse() : edge.waypoints), end]);
+    const seen = new Set<string>();
+    for (let attempt = 0; attempt < 48 && queue.length; attempt++) {
+      queue.sort((a, b) => routeLength(a) - routeLength(b));
+      const route = queue.shift()!;
+      let obstruction: Obstacle | undefined, i = 1;
+      for (; i < route.length; i++) {
+        const a = route[i - 1], b = route[i];
+        obstruction = hit(pointBounds([a, b]), box => lineHits(a, b, box));
+        if (obstruction) break;
+      }
+      if (!obstruction) {
+        route[0] = nodeBoundary(from, route[1], fromShape);
+        route[route.length - 1] = nodeBoundary(to, route[route.length - 2], toShape);
+        return remember(polylinePath(reverse ? route.reverse() : route));
+      }
+      if (route.length >= 66) continue;
+      const { left, right, top, bottom } = obstruction;
+      const tl = { x: left - 1, y: top - 1 }, tr = { x: right + 1, y: top - 1 };
+      const bl = { x: left - 1, y: bottom + 1 }, br = { x: right + 1, y: bottom + 1 };
+      const a = route[i - 1], b = route[i];
+      for (const via of [[tl], [tr], [bl], [br], [tl, tr], [bl, br], [tl, bl], [tr, br]]) {
+        if (via.some(p => route.some(q => q.x === p.x && q.y === p.y))) continue;
+        if (via.length === 2 && Math.hypot(via[0].x - a.x, via[0].y - a.y) + Math.hypot(via[1].x - b.x, via[1].y - b.y) >
+            Math.hypot(via[1].x - a.x, via[1].y - a.y) + Math.hypot(via[0].x - b.x, via[0].y - b.y)) via.reverse();
+        const local = [a, ...via, b];
+        if (local.slice(1).some((p, j) => lineHits(local[j], p, obstruction!))) continue;
+        const next = [...route.slice(0, i), ...via, ...route.slice(i)];
+        const signature = JSON.stringify(next);
+        if (!seen.has(signature)) { seen.add(signature); queue.push(next); }
+      }
+    }
+    return remember(original);
   };
 }

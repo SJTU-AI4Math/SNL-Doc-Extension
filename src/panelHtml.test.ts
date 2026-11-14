@@ -33,6 +33,7 @@ describe('panel HTML preference bootstrap', () => {
 
   it('loads only the chunked Create Entry bundle as a module', () => {
     expect(panel_script_type_attribute('createEntry')).toBe(' type="module"');
+    expect(panel_script_type_attribute('remoteReader')).toBe(' type="module"');
     expect(panel_script_type_attribute('main')).toBe('');
   });
 

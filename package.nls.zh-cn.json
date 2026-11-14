@@ -25,6 +25,7 @@
   "snlDoc.command.revealEntryPointer": "SNL：显示条目指针",
   "snlDoc.command.openDashboard": "SNL：打开仪表板",
   "snlDoc.command.selectWorkspaceSource": "SNL：选择工作区数据源",
+  "snlDoc.command.openRemoteReader": "SNL：打开远程阅读器",
   "snlDoc.command.openNavigation": "SNL：打开导航",
   "snlDoc.command.checkDataVersion": "SNL：检查数据版本",
   "snlDoc.command.repairData": "SNL：修复 / 迁移数据",

@@ -50,7 +50,8 @@ export function buildPanelHtml(
   webview: vscode.Webview,
   entry: string,
   title: string,
-  ownerDisposables?: vscode.Disposable[]
+  ownerDisposables?: vscode.Disposable[],
+  options: { detached?: boolean } = {}
 ): string {
   const scriptUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, 'media', 'webview', `${entry}.js`)
@@ -72,9 +73,9 @@ export function buildPanelHtml(
   const csp = panel_content_security_policy(nonce, webview.cspSource);
   const scriptType = panel_script_type_attribute(entry);
 
-  const workspaceRoot = firstWorkspaceFolder();
+  const workspaceRoot = options.detached ? undefined : firstWorkspaceFolder();
   const assetCacheRoot = get_preferences_asset_cache_root();
-  const preferencesDisposable = register_preferences_webview(webview, workspaceRoot ? {
+  const preferencesDisposable = options.detached ? undefined : register_preferences_webview(webview, workspaceRoot ? {
     read: () => readWorkspaceSupportedLanguages(workspaceRoot),
     add: async (input: unknown) => {
       const result = await addWorkspaceSupportedLanguage(workspaceRoot, input);
@@ -96,7 +97,7 @@ export function buildPanelHtml(
       baseIdentity
     })
   } : undefined);
-  ownerDisposables?.push(preferencesDisposable);
+  if (preferencesDisposable) ownerDisposables?.push(preferencesDisposable);
   const preferences = extension_preferences_runtime.query_environment();
   const htmlAttributes = preference_html_attributes(preferences);
   const blackLogoUri = webview.asWebviewUri(

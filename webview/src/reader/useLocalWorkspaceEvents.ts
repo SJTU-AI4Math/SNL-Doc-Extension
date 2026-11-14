@@ -6,12 +6,13 @@ export type LocalWorkspaceWatchStatus = {
 };
 
 /** Local server only. One stream and at most one trailing read, never a request per event. */
-export function useLocalWorkspaceEvents(busy: boolean, refresh: () => void): LocalWorkspaceWatchStatus {
+export function useLocalWorkspaceEvents(busy: boolean, refresh: () => void, enabled = true): LocalWorkspaceWatchStatus {
   const [status, setStatus] = useState<LocalWorkspaceWatchStatus>({ state: 'connecting' });
   const committed = useRef({ busy, refresh });
   const wake = useRef<(() => void) | null>(null);
   useLayoutEffect(() => { committed.current = { busy, refresh }; wake.current?.(); }, [busy, refresh]);
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
     let source: EventSource | undefined;
     let timer: number | undefined;
@@ -91,6 +92,6 @@ export function useLocalWorkspaceEvents(busy: boolean, refresh: () => void): Loc
       if (timer !== undefined) window.clearTimeout(timer);
       disconnect();
     };
-  }, []);
+  }, [enabled]);
   return status;
 }

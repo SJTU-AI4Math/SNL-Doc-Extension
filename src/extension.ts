@@ -298,6 +298,10 @@ export function activate(context: vscode.ExtensionContext): void {
   initialize_preferences_host(context);
   installPointerSyncHost(context, createPointerHostDriver());
   const t = hostMessage;
+  context.subscriptions.push(vscode.commands.registerCommand('snlDoc.openRemoteReader', async () => {
+    const { openRemoteReader } = await import('./remoteReaderPanel');
+    await openRemoteReader(context);
+  }));
   context.subscriptions.push(vscode.commands.registerCommand('snlDoc.selectWorkspaceSource', () =>
     selectWorkspaceSource(context.workspaceState, {
       noFolder: t('sourceNoFolder'), current: t('sourceCurrent'), prompt: t('sourcePrompt'),

@@ -66,6 +66,10 @@ Then launch the extension from VS Code (F5 / Run Extension). See
 - Source inclusion uses the selected local SNL data source. If that source is
   removed or changed, open the document again before exporting.
 
+## Remote Reader
+
+Run Toolkit's `snl serve-remote` on a machine with an SNL workspace and a TLS certificate. In VS Code, run **SNL: Open Remote Reader**, then enter the service's HTTPS origin and Reader token. VS Code stores the token in SecretStorage for that origin. Open a Library to read Entries and Macros, use SNoogL, or explore its relationship graph. Use **Refresh** to request current data. Local authoring continues through **SNL: Select Workspace Data Source**.
+
 ## Derived caches
 
 Git stores Authoring, not automatically derived results. Internal, versioned

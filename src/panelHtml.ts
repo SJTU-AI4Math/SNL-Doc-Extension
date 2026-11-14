@@ -24,7 +24,7 @@ export function panel_content_security_policy(nonce: string, cspSource: string):
 }
 
 export function panel_script_type_attribute(entry: string): string {
-  return entry === 'createEntry' ? ' type="module"' : '';
+  return entry === 'createEntry' || entry === 'remoteReader' ? ' type="module"' : '';
 }
 
 export function preference_html_attributes(

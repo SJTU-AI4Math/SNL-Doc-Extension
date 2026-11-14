@@ -25,6 +25,7 @@
   "snlDoc.command.revealEntryPointer": "SNL: Reveal Entry Pointer",
   "snlDoc.command.openDashboard": "SNL: Open Dashboard",
   "snlDoc.command.selectWorkspaceSource": "SNL: Select Workspace Data Source",
+  "snlDoc.command.openRemoteReader": "SNL: Open Remote Reader",
   "snlDoc.command.openNavigation": "SNL: Open Navigation",
   "snlDoc.command.checkDataVersion": "SNL: Check Data Version",
   "snlDoc.command.repairData": "SNL: Repair / Migrate Data",

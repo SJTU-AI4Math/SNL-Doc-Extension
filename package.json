@@ -22,6 +22,14 @@
   "contributes": {
     "commands": [
       {
+        "command": "snlDoc.openRemoteReader",
+        "title": "%snlDoc.command.openRemoteReader%"
+      },
+      {
+        "command": "snlDoc.selectWorkspaceSource",
+        "title": "%snlDoc.command.selectWorkspaceSource%"
+      },
+      {
         "command": "snlDoc.revealNearestEntry",
         "title": "%snlDoc.command.revealNearestEntry%"
       },

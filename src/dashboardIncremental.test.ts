@@ -12,7 +12,8 @@ vi.mock('vscode', () => {
   const io = require('node:fs/promises') as typeof import('node:fs/promises');
   const paths = require('node:path') as typeof import('node:path');
   class Uri {
-    constructor(public path: string) {}
+    readonly path: string;
+    constructor(p: string) { this.path = p.replaceAll('\\', '/'); }
     get fsPath() { return this.path; }
     readonly scheme = 'file';
     toString() { return `file:${this.path}`; }
@@ -92,7 +93,7 @@ describe('real filesystem Dashboard catalog and incremental scans', () => {
     expect(catalog.entryPackages).toHaveLength(2);
     expect(catalog.entryPackages.every(pkg => pkg.entryCount === null)).toBe(true);
     expect(catalog.libraries).toEqual([{ slug: 'demo', title: 'Demo', entryCount: null, relationshipCount: null }]);
-    expect(probe.reads.map(p => nodePath.relative(nodePath.join(root, '.SNL_Doc'), p)).sort()).toEqual([
+    expect(probe.reads.map(p => nodePath.relative(nodePath.join(root, '.SNL_Doc'), p).split(nodePath.sep).join('/')).sort()).toEqual([
       'config.json', 'libraries/demo/meta.json', packageManifestPath('Logic'), packageManifestPath('_unpackaged')
     ].sort());
     for (const touched of [...probe.reads, ...probe.stats, ...probe.directories]) {

@@ -19,7 +19,7 @@ vi.mock('vscode', async () => {
   };
   return {
     FileType: { File: 1, Directory: 2, SymbolicLink: 64 },
-    Uri: { file: uri, parse: (s: string) => { const u = new URL(s); return uri(u.pathname, u.protocol.slice(0, -1), u.host); }, joinPath: (base: any, ...parts: string[]) => uri(path.join(base.fsPath, ...parts), base.scheme, base.authority) },
+    Uri: { file: uri, parse: (s: string) => { const u = new URL(s); return uri(u.pathname, u.protocol.slice(0, -1), u.host); }, joinPath: (base: any, ...parts: string[]) => uri((base.scheme === 'file' ? path : path.posix).join(base.fsPath, ...parts), base.scheme, base.authority) },
     workspace: { fs: {
       stat: async (u: any) => { if (u.scheme !== 'file') return { type: item(u) === null ? 2 : 1, size: 0, mtime: 0, ctime: 0 }; const s = await fs.lstat(u.fsPath); return { type: s.isSymbolicLink() ? 64 : s.isDirectory() ? 2 : 1, size: s.size, mtime: s.mtimeMs, ctime: s.ctimeMs }; },
       readFile: async (u: any) => u.scheme === 'file' ? fs.readFile(u.fsPath) : item(u),
@@ -194,15 +194,16 @@ describe('Dependency cache real host storage', () => {
 
 async function virtualFixture(localExists = false) {
   const f = await withMacro();
-  const local = localExists ? f.root : join(f.root, 'remote-only');
+  const nativePath = localExists ? f.root : join(f.root, 'remote-only');
+  const local = nativePath.replaceAll('\\', '/').replace(/^(?=[A-Za-z]:)/, '/');
   const uri = vscode.Uri.parse(`memfs://one${local}`);
   const bytes = await authored(f.root);
   for (const authority of ['one', 'two']) {
     const root = `memfs://${authority}${local}`;
     for (const [relative, value] of Object.entries(bytes)) {
-      const parts = relative.split('/');
+      const parts = relative.replaceAll('\\', '/').split('/');
       for (let i = 1; i < parts.length; ++i) provider.files.set(root + '/' + parts.slice(0, i).join('/'), null);
-      provider.files.set(root + '/' + relative, Buffer.from(value, 'base64'));
+      provider.files.set(root + '/' + relative.replaceAll('\\', '/'), Buffer.from(value, 'base64'));
     }
   }
   return { ...f, uri, other: vscode.Uri.parse(`memfs://two${local}`) };

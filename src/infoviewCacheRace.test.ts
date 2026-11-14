@@ -118,7 +118,7 @@ it('does not let a retired Library request enter shared SSI/PageRank after graph
     const bytes = await originalRead(u);
     // First graph read belongs to the point-read body; second follows the
     // complete dependency computation, matching this historical race seam.
-    if (u.fsPath.endsWith('/lib/graph.json') && ++graphReads === 2) { paused.resolve(); await release.promise; }
+    if (u.fsPath.replaceAll('\\', '/').endsWith('/lib/graph.json') && ++graphReads === 2) { paused.resolve(); await release.promise; }
     return bytes;
   });
   const runner = vi.spyOn(cache, 'getOrGenerateCache');

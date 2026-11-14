@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { assertSelfContainedReader, buildExportReader } from '../scripts/export-reader-build.mjs';
 
 const root = resolve(__dirname, '..');
@@ -14,7 +14,7 @@ async function fixture(source: string, css = true) {
   const dir = await mkdtemp(resolve(tmpdir(), 'snl-reader-build-'));
   await mkdir(resolve(dir, 'scripts'), { recursive: true });
   await mkdir(resolve(dir, 'webview/src/reader'), { recursive: true });
-  await symlink(resolve(root, 'node_modules'), resolve(dir, 'node_modules'), 'dir');
+  await symlink(resolve(root, 'node_modules'), resolve(dir, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
   for (const file of ['build-export-runtime.mjs', 'export-reader-build.mjs']) {
     await copyFile(resolve(root, 'scripts', file), resolve(dir, 'scripts', file));
   }
@@ -42,8 +42,8 @@ describe('production React export reader build gate', () => {
   it('builds the real BrowserReader in memory with React, math and offline font data URLs', async () => {
     const result = await buildExportReader(root);
     expect(() => assertSelfContainedReader(result)).not.toThrow();
-    const js = result.outputFiles.find((file) => file.path.endsWith('/exportRuntime.js'));
-    const css = result.outputFiles.find((file) => file.path.endsWith('/exportRuntime.css'));
+    const js = result.outputFiles.find((file) => basename(file.path) === 'exportRuntime.js');
+    const css = result.outputFiles.find((file) => basename(file.path) === 'exportRuntime.css');
     expect(js?.text.length).toBeGreaterThan(0);
     expect(css?.text).toMatch(/data:(?:font|application)\/[^;]+;base64,/);
     const inputs = Object.keys(result.metafile.inputs).join('\n');

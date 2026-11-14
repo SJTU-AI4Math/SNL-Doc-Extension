@@ -13,7 +13,7 @@
 // <g transform>. Click a node → post `openEntryInfoview`. Click an edge
 // label → post `editRelationship`. No physics.
 
-import { DEFAULT_LAYOUT_PARAMETERS, edgePath, graphNodePresentation, TITLE_VIEWPORT_MARGIN, type GraphLayoutMode, type GraphLayerPacking, type GraphNodeMode, type EdgePoint, CARD_RADIUS, type NodeShape, type LaidOutCluster, LAYOUT_METRICS, type GraphNode, type GraphEdge, type LaidOutNode, type Layout } from '../../src/graphLayout';
+import { DEFAULT_LAYOUT_PARAMETERS, createGraphEdgeRouter, graphNodePresentation, TITLE_VIEWPORT_MARGIN, type GraphLayoutMode, type GraphLayerPacking, type GraphNodeMode, type EdgePoint, CARD_RADIUS, type NodeShape, type LaidOutCluster, LAYOUT_METRICS, type GraphNode, type GraphEdge, type LaidOutNode, type Layout } from '../../src/graphLayout';
 export { edgePath, layout, graphNodePresentation } from '../../src/graphLayout';
 import { GraphLayoutMemoryCache, graphLayoutInput } from '../../src/graphLayoutCacheModel';
 import React, { useCallback, useEffect, useLayoutEffect, useInsertionEffect, useMemo, useRef, useState } from 'react';
@@ -284,7 +284,7 @@ interface ContentBounds { minX: number; minY: number; maxX: number; maxY: number
 /** Actual title-card rectangles plus the convex hull of the existing cubic
  * edge controls (including self loops). Decorative lane/sector canvases are
  * deliberately excluded. Parsing is safe here: edgePath emits only M/C pairs. */
-export function graphContentBounds(laid: Layout, includeEdges = true): ContentBounds {
+export function graphContentBounds(laid: Layout, includeEdges = true, routeEdge?: ReturnType<typeof createGraphEdgeRouter>): ContentBounds {
   const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
   const include = (x: number, y: number): void => {
     bounds.minX = Math.min(bounds.minX, x); bounds.maxX = Math.max(bounds.maxX, x);
@@ -292,9 +292,9 @@ export function graphContentBounds(laid: Layout, includeEdges = true): ContentBo
   };
   for (const n of laid.nodes) { include(n.x - 2, n.y - 2); include(n.x + n.w + 2, n.y + n.h + 2); }
   if (!includeEdges) return bounds;
-  const byId = new Map(laid.nodes.map(n => [n.id, n]));
+  const route = routeEdge ?? createGraphEdgeRouter(laid);
   for (const e of laid.edges) {
-    const { d } = edgePath(byId.get(e.from)!, byId.get(e.to)!, e.waypoints, { fromShape: 'title', toShape: 'title' }, laid);
+    const { d } = route(e);
     const values = d.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)!.map(Number);
     for (let i = 0; i < values.length; i += 2) include(values[i], values[i + 1]);
   }
@@ -616,8 +616,9 @@ function SnlGraphInner({
       : selectedId !== null ? laid.edges.filter(edge => edge.from === selectedId || edge.to === selectedId)
       : showRelationships ? laid.edges : [];
   }, [laid, selectedEdgeId, selectedId, showRelationships]);
+  const routeEdge = useMemo(() => laid ? createGraphEdgeRouter(laid) : undefined, [laid]);
   const contentBounds = useMemo(() => laid?.nodes.length
-    ? graphContentBounds({ ...laid, edges: paintedEdges }, paintedEdges.length > 0) : null, [laid, paintedEdges]);
+    ? graphContentBounds({ ...laid, edges: paintedEdges }, paintedEdges.length > 0, routeEdge) : null, [laid, paintedEdges, routeEdge]);
   const fitSnapshotRef = useRef<{ laid: typeof laid; bounds: typeof contentBounds } | null>(null);
   useLayoutEffect(() => {
     const snapshot = { laid, bounds: contentBounds };
@@ -1100,9 +1101,7 @@ function SnlGraphInner({
               })}
               {/* Edges first so nodes paint on top. */}
               {paintedEdges.map((e) => {
-                const from = nodesById.get(e.from)!;
-                const to = nodesById.get(e.to)!;
-                const { d } = edgePath(from, to, e.waypoints, { fromShape: nodeShape(from.id), toShape: nodeShape(to.id) }, laid);
+                const { d } = routeEdge!(e, { fromShape: nodeShape(e.from), toShape: nodeShape(e.to) });
                 const hovered = hoverEdgeId === e.id;
                 const incidentToSelected =
                   selectedId !== null &&

@@ -13,7 +13,7 @@ const state = vi.hoisted(() => ({
 vi.mock('vscode', async () => {
   const disk = await import('node:fs/promises');
   const paths = await import('node:path');
-  const uri = (path: string): any => ({ path, fsPath: path, scheme: 'batch-test', authority: '', toString: () => `batch-test:${path}` });
+  const uri = (path: string): any => ({ path: path.replaceAll('\\', '/'), fsPath: path, scheme: 'batch-test', authority: '', toString: () => `batch-test:${path}` });
   return {
     env: { language: 'en' }, FileType: { File: 1, Directory: 2, SymbolicLink: 64 },
     Uri: { file: uri, joinPath: (base: any, ...parts: string[]) => uri(paths.join(base.path, ...parts)) },
@@ -26,10 +26,10 @@ vi.mock('vscode', async () => {
         createDirectory: (u: any) => disk.mkdir(u.path, { recursive: true }),
         delete: (u: any) => disk.unlink(u.path),
         writeFile: async (u: any, bytes: Uint8Array) => {
-          state.writes.push(u.path);
+          state.writes.push(u.fsPath);
           if (state.denyConfig && u.path.endsWith('/config.json')) throw new Error('config publication denied');
           await disk.writeFile(u.path, bytes);
-          await state.afterWrite?.(u.path);
+          await state.afterWrite?.(u.fsPath);
         }
       }
     }

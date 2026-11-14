@@ -32,8 +32,9 @@ it('renders host cached coordinates and edge routes without executing layout; re
   fireEvent.click(screen.getByTitle('Expand filters'));
   fireEvent.click(screen.getByRole('checkbox', { name: 'Show relationships' }));
   const edge = msg.layoutCache.layout.edges.find(e => e.id === 'ac')!;
-  const target = msg.layoutCache.layout.nodes.find(n => n.id === 'c')!;
-  expect([...container.querySelectorAll('path')].some(p => p.getAttribute('d') === geometry.edgePath(expected,target,edge.waypoints, { fromShape: 'dot', toShape: 'dot' }).d)).toBe(true);
+  const route = geometry.createGraphEdgeRouter(msg.layoutCache.layout);
+  expect(container.querySelector('[data-edge-id="ac"] path')?.getAttribute('d'))
+    .toBe(route(edge, { fromShape: 'dot', toShape: 'dot' }).d);
   fireEvent.click(node); // selection is not generated data
   expect(compute).not.toHaveBeenCalled();
 });

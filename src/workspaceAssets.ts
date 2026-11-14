@@ -41,12 +41,13 @@ function validateRelativeImagePath(value: string): string[] {
 }
 
 async function assertLocalRealpathContainment(
+  workspaceRoot: vscode.Uri,
   assetRoot: vscode.Uri,
   target: vscode.Uri
 ): Promise<void> {
   if (assetRoot.scheme !== 'file' || target.scheme !== 'file') return;
-  const localSegments = relative(assetRoot.fsPath, target.fsPath).split(sep);
-  let cursor = assetRoot.fsPath;
+  const localSegments = relative(workspaceRoot.fsPath, target.fsPath).split(sep);
+  let cursor = workspaceRoot.fsPath;
   for (const segment of ['', ...localSegments]) {
     if (segment) cursor = resolve(cursor, segment);
     if ((await nodeFs.lstat(cursor)).isSymbolicLink()) {
@@ -115,7 +116,7 @@ async function readWorkspaceAssetBounded(
   if ((targetStat.type & vscode.FileType.File) === 0 || targetStat.size > maxBytes) {
     throw new Error(`${label} must be a regular file no larger than ${limit}.`);
   }
-  await assertLocalRealpathContainment(assetRoot, target);
+  await assertLocalRealpathContainment(options.workspaceRoot, assetRoot, target);
 
   let bytes: Uint8Array;
   if (target.scheme === 'file') {
@@ -130,7 +131,7 @@ async function readWorkspaceAssetBounded(
       }
       // Revalidate after opening, then bind the path to the opened inode. A
       // check-then-swap cannot redirect the bytes without changing this pair.
-      await assertLocalRealpathContainment(assetRoot, target);
+      await assertLocalRealpathContainment(options.workspaceRoot, assetRoot, target);
       const currentHandle = await nodeFs.open(
         target.fsPath,
         fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)

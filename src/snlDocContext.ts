@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { getWorkspaceSource } from './workspaceSource';
 
 /**
  * The `when`-clause context key backing the editor-title 🐱 button.
@@ -16,19 +17,14 @@ import * as vscode from 'vscode';
  */
 export const SNL_DOC_CONTEXT_KEY = 'snlDoc.hasSnlDoc';
 
-/** Whether `<root>/.SNL_Doc` exists in any open workspace folder. */
+/** Whether the active source contains an SNL document. */
 export async function workspaceHasSnlDoc(): Promise<boolean> {
-  const folders = vscode.workspace.workspaceFolders ?? [];
-  for (const folder of folders) {
-    const uri = vscode.Uri.joinPath(folder.uri, '.SNL_Doc');
-    try {
-      const stat = await vscode.workspace.fs.stat(uri);
-      if (stat.type === vscode.FileType.Directory) return true;
-    } catch {
-      // Missing / unreadable — just not this folder.
-    }
-  }
-  return false;
+  const root = getWorkspaceSource();
+  if (!root) return false;
+  try {
+    const stat = await vscode.workspace.fs.stat(vscode.Uri.joinPath(root, '.SNL_Doc'));
+    return stat.type === vscode.FileType.Directory;
+  } catch { return false; }
 }
 
 /** Push the current answer into VS Code's `when`-clause context. */

@@ -147,9 +147,11 @@ it('atomically writes deterministic pointer-inverse cache and validates its roun
 it('refuses a symlink cache path without overwriting the symlink target', async () => {
   await fs.mkdir(path.join(root, '.SNL_Doc/.cache/pointer-inverse'), { recursive: true });
   const outside = path.join(root, 'outside');
-  await fs.writeFile(outside, 'untouched');
-  await fs.symlink(outside, path.join(root, '.SNL_Doc', '.cache/pointer-inverse/result.json'));
+  await fs.mkdir(outside);
+  const marker = path.join(outside, 'marker');
+  await fs.writeFile(marker, 'untouched');
+  await fs.symlink(outside, path.join(root, '.SNL_Doc', '.cache/pointer-inverse/result.json'), process.platform === 'win32' ? 'junction' : 'dir');
   expect(await readPointerIndex(root)).toBeUndefined();
   await expect(writePointerIndex(root, await buildPointerIndex(root, []))).rejects.toThrow(/Unsafe/i);
-  expect(await fs.readFile(outside, 'utf8')).toBe('untouched');
+  expect(await fs.readFile(marker, 'utf8')).toBe('untouched');
 });

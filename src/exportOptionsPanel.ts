@@ -273,8 +273,8 @@ export class ExportOptionsPanel {
 
   private sourceCaptureInput(context: RenderSourceContext, options: SourceExportOptions, destination: string, shape: 'single' | 'directory') {
     const root = firstWorkspaceFolder();
-    if (vscode.workspace.workspaceFolders?.length !== 1 || root?.scheme !== 'file' || root.fsPath !== context.rootPath) {
-      throw new Error('Source export requires one unchanged local workspace root; recapture the document in a single-root workspace.');
+    if (root?.scheme !== 'file' || nodePath.relative(root.fsPath, context.rootPath) !== '') {
+      throw new Error('The SNL workspace data source changed or is unavailable. Open the document again before exporting.');
     }
     const destinationPath = shape === 'single' && !/\.html$/i.test(destination) ? destination + '.html' : destination;
     return { rootPath: context.rootPath, destinationPath, inline: shape === 'single',
@@ -284,10 +284,15 @@ export class ExportOptionsPanel {
   private async dirtySourceFiles(preview: SourcePreview): Promise<string[]> {
     const root = this.sourceContext?.rootPath;
     if (!root) return [];
+    const pathKey = (file: string) => {
+      const normalized = nodePath.resolve(file);
+      return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+    };
     const files = new Set<string>();
     for (const file of preview.manifest.files) {
-      const path = nodePath.resolve(root, file.displayPath); files.add(path);
-      try { files.add(await realpath(path)); } catch { /* snapshot revalidation reports missing files */ }
+      const path = nodePath.resolve(root, file.displayPath);
+      files.add(pathKey(path));
+      try { files.add(pathKey(await realpath(path))); } catch { /* snapshot revalidation reports missing files */ }
     }
     // Resolve document aliases before sampling mutable dirty flags. A selected
     // clean buffer can become dirty while another document's realpath awaits.
@@ -299,7 +304,8 @@ export class ExportOptionsPanel {
     const dirty: string[] = [];
     for (const doc of vscode.workspace.textDocuments) {
       if (!doc.isDirty || doc.uri.scheme !== 'file') continue;
-      if (files.has(aliases.get(doc.uri.fsPath) ?? doc.uri.fsPath) || files.has(doc.uri.fsPath)) dirty.push(doc.uri.fsPath);
+      const file = doc.uri.fsPath;
+      if (files.has(pathKey(file)) || files.has(pathKey(aliases.get(file) ?? file))) dirty.push(file);
     }
     return dirty;
   }

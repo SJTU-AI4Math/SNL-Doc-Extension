@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { getWorkspaceSource } from './workspaceSource';
 import { randomUUID } from 'node:crypto';
 import { extension_preferences_runtime } from './preferences';
 import {
@@ -384,7 +385,7 @@ let assetCacheRoot: vscode.Uri | undefined;
 
 export function initialize_preferences_host(
   context: vscode.ExtensionContext,
-  workspaceRoot: vscode.Uri | undefined = vscode.workspace.workspaceFolders?.[0]?.uri
+  workspaceRoot: vscode.Uri | undefined = getWorkspaceSource()
 ): void {
   host?.dispose();
   host = new PreferencesHost(workspaceRoot);

@@ -12,14 +12,21 @@ import { navigateReaderHash, useReaderLocation } from './readerHistory';
 import { useLocalWorkspaceEvents } from './useLocalWorkspaceEvents';
 
 export interface LocalReaderWorkspace {
-  id: 'local';
+  id: 'local' | 'remote';
   name: string;
-  root: string;
+  root?: string;
   libraries: LibrarySummary[];
   capabilities: { edit: false };
 }
+export interface ReaderTransport {
+  catalog(signal: AbortSignal): Promise<LocalReaderWorkspace>;
+  snapshot(slug: string, signal: AbortSignal): Promise<FrozenReaderSnapshot>;
+}
 const MESSAGES = defineUiMessages('localWorkspaceReader', {
   title: 'Local workspace', workspace: 'Workspace', refresh: 'Refresh', loading: 'Loading…',
+  remoteTitle: 'Remote workspace', remoteScope: 'Scope: entries, macros and relationships from the remote service (read-only).',
+  remoteSource: 'Source navigation is unavailable for a remote Library.',
+  remoteRenderFailed: 'Could not render this Library. Refresh or return to the workspace.',
   scope: 'Scope: all entries, macros and relationships in this local workspace (read-only).',
   readonly: 'Read-only', empty: 'No libraries in this workspace.',
   source: 'Source navigation is not connected to the local server yet.',
@@ -34,6 +41,9 @@ const MESSAGES = defineUiMessages('localWorkspaceReader', {
   updating: 'Updating workspace data… Previous content remains visible until the read succeeds.'
 }, {
   title: '本地工作区', workspace: '工作区', refresh: '刷新', loading: '正在加载……',
+  remoteTitle: '远程工作区', remoteScope: '范围：远程服务提供的条目、宏和关系（只读）。',
+  remoteSource: '远程文档库不提供源码定位。',
+  remoteRenderFailed: '无法显示此文档库。请刷新或返回工作区。',
   scope: '范围：本地工作区的全部条目、宏和关系（只读）。', readonly: '只读', empty: '此工作区暂无文档库。',
   source: '源码定位尚未接入本地服务。', unavailable: '此目的地在工作区中不可用。', missing: '工作区中未找到',
   graphEmpty: '当前筛选下无可显示的关系。', failed: '无法读取工作区数据：{message}',
@@ -50,12 +60,19 @@ async function getJson<T>(url: string, signal: AbortSignal): Promise<T> {
   return response.json();
 }
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
+const localTransport: ReaderTransport = {
+  catalog: signal => getJson('/__snl/api/workspace', signal),
+  snapshot: (slug, signal) => getJson('/__snl/api/snapshot?' + new URLSearchParams({ library: slug }), signal),
+};
 const ANNOUNCEMENT_STYLE: React.CSSProperties = { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clipPath: 'inset(50%)' };
 const NOTICE_STYLE: React.CSSProperties = { position: 'fixed', bottom: 12, left: 12, right: 12, zIndex: 100, margin: 0, padding: '8px 12px', overflowWrap: 'anywhere', background: 'var(--vscode-editor-background, #fff)', border: '1px solid currentColor', borderRadius: 4 };
 
 /** The shell only chooses a snapshot. Routing, search, graph and reading belong to BrowserReader. */
-export function LocalWorkspaceReader(): React.ReactElement {
+export function LocalWorkspaceReader({ transport = localTransport }: { transport?: ReaderTransport } = {}): React.ReactElement {
   const t = useUiMessages(MESSAGES);
+  const remote = transport !== localTransport;
+  const workspaceTitle = t(remote ? 'remoteTitle' : 'title');
+  const scope = t(remote ? 'remoteScope' : 'scope');
   const { route } = useReaderLocation();
   const librarySlug = route.kind === 'workspace' ? undefined : route.librarySlug;
   const [refresh, setRefresh] = useState(0);
@@ -64,7 +81,7 @@ export function LocalWorkspaceReader(): React.ReactElement {
   const refreshWorkspace = useCallback(() => setRefresh(value => value + 1), []);
   const busy = catalog.loading || catalog.refresh !== refresh || (librarySlug !== undefined &&
     (reading?.slug !== librarySlug || reading.refresh !== refresh || reading.loading));
-  const watch = useLocalWorkspaceEvents(busy, refreshWorkspace);
+  const watch = useLocalWorkspaceEvents(busy, refreshWorkspace, !remote);
   const catalogGeneration = useRef(0);
   const snapshotGeneration = useRef(0);
   useEffect(() => {
@@ -72,13 +89,13 @@ export function LocalWorkspaceReader(): React.ReactElement {
     const generation = ++catalogGeneration.current;
     let active = true;
     setCatalog(current => ({ ...current, loading: true, refresh }));
-    void getJson<LocalReaderWorkspace>('/__snl/api/workspace', controller.signal).then(value => {
+    void transport.catalog(controller.signal).then(value => {
       if (active && generation === catalogGeneration.current) setCatalog({ value, loading: false, refresh });
     }, error => {
       if (active && generation === catalogGeneration.current) setCatalog(current => ({ value: current.value, error: errorMessage(error), loading: false, refresh }));
     });
     return () => { active = false; controller.abort(); };
-  }, [refresh]);
+  }, [refresh, transport]);
   useEffect(() => {
     const generation = ++snapshotGeneration.current;
     if (librarySlug === undefined) { setReading(undefined); return; }
@@ -86,33 +103,44 @@ export function LocalWorkspaceReader(): React.ReactElement {
     const controller = new AbortController();
     let active = true;
     setReading(current => ({ slug, refresh, loading: true, snapshot: current?.slug === slug ? current.snapshot : undefined, error: current?.slug === slug ? current.error : undefined }));
-    void getJson<FrozenReaderSnapshot>('/__snl/api/snapshot?' + new URLSearchParams({ library: slug }), controller.signal).then(snapshot => {
+    void transport.snapshot(slug, controller.signal).then(snapshot => {
       if (snapshot.version !== 1 || snapshot.library?.slug !== slug) throw new Error('Invalid snapshot version or library identity');
       if (active && generation === snapshotGeneration.current) setReading({ slug, refresh, loading: false, snapshot });
     }).catch(error => {
       if (active && generation === snapshotGeneration.current) setReading(current => ({ slug, refresh, loading: false, snapshot: current?.slug === slug ? current.snapshot : undefined, error: errorMessage(error) }));
     });
     return () => { active = false; controller.abort(); };
-  }, [librarySlug, refresh]);
+  }, [librarySlug, refresh, transport]);
   // Guard the render preceding effect cleanup too: A data must never be presented under B's URL.
   // Keep accepted same-library content mounted while rereading (also on read errors).
   const current = reading?.slug === librarySlug ? reading : undefined;
   const home = () => navigateReaderHash(encodeReaderRoute({ kind: 'workspace' }));
+  let reader: React.ReactNode;
+  if (current?.snapshot && librarySlug !== undefined) {
+    reader = <BrowserReader key={librarySlug} snapshot={current.snapshot} hostContext={{
+      librarySlug, scope, sourceUnavailableReason: t(remote ? 'remoteSource' : 'source'), unavailable: t('unavailable'),
+      missingEntry: t('missing'), graphEmpty: t('graphEmpty'), workspaceLabel: t('workspace'), onWorkspace: home, onRefresh: refreshWorkspace
+    }} />;
+    if (remote) reader = <RemoteRenderBoundary key={librarySlug} snapshot={current.snapshot} fallback={<main style={PANEL_STYLE}>
+      <WorkspaceHeader title={catalog.value?.name ?? workspaceTitle} scope={scope} onWorkspace={home} onRefresh={refreshWorkspace} />
+      <p role="alert">{t('remoteRenderFailed')}</p>
+    </main>}>{reader}</RemoteRenderBoundary>;
+  }
   return <>
     {/* Live status must not add a toolbar or move the reading position on every save. */}
-    <aside style={watch.state !== 'connected' || (current?.snapshot && (current.error || catalog.error)) ? NOTICE_STYLE : ANNOUNCEMENT_STYLE}>
-      <p data-snl-local-watch-status={watch.state} role="status" style={watch.state === 'connected' ? ANNOUNCEMENT_STYLE : { margin: 0 }}>
+    <aside style={(!remote && watch.state !== 'connected') || (current?.snapshot && (current.error || catalog.error)) ? NOTICE_STYLE : ANNOUNCEMENT_STYLE}>
+      {!remote && <p data-snl-local-watch-status={watch.state} role="status" style={watch.state === 'connected' ? ANNOUNCEMENT_STYLE : { margin: 0 }}>
         {watch.state === 'unavailable' ? watch.message ? t('watchDetail', { message: watch.message }) : t('watchUnavailable') : t(watch.state)}
-      </p>
+      </p>}
       {current?.snapshot && current.error ? <p data-snl-local-read-error="snapshot" role="alert">{t('failed', { message: current.error })}</p> : null}
       {current?.snapshot && catalog.error ? <p data-snl-local-read-error="catalog" role="alert">{t('failed', { message: catalog.error })}</p> : null}
     </aside>
     {busy && (catalog.value || current?.snapshot) ? <p data-snl-local-read-status="updating" role="status" style={ANNOUNCEMENT_STYLE}>{t('updating')}</p> : null}
     {librarySlug === undefined ? <main style={PANEL_STYLE}>
-      <WorkspaceHeader title={catalog.value?.name ?? t('title')} onRefresh={refreshWorkspace} />
+      <WorkspaceHeader title={catalog.value?.name ?? workspaceTitle} scope={scope} onRefresh={refreshWorkspace} />
       {catalog.error ? <p data-snl-local-read-error="catalog" role="alert">{t('failed', { message: catalog.error })}</p> : null}
       {catalog.value ? <>
-        <p style={{ overflowWrap: 'anywhere' }}><code>{catalog.value.root}</code></p>
+        {!remote && catalog.value.root ? <p style={{ overflowWrap: 'anywhere' }}><code>{catalog.value.root}</code></p> : null}
         {catalog.value.libraries.length ? <LibrariesTable
           libraries={catalog.value.libraries}
           readOnly
@@ -120,19 +148,38 @@ export function LocalWorkspaceReader(): React.ReactElement {
         /> : <p>{t('empty')}</p>}
       </> : null}
       {catalog.loading ? <p role="status">{t('loading')}</p> : null}
-    </main> : current?.snapshot ? <BrowserReader key={librarySlug} snapshot={current.snapshot} hostContext={{
-      librarySlug, scope: t('scope'), sourceUnavailableReason: t('source'), unavailable: t('unavailable'),
-      missingEntry: t('missing'), graphEmpty: t('graphEmpty'), workspaceLabel: t('workspace'), onWorkspace: home, onRefresh: refreshWorkspace
-    }} /> : <main style={PANEL_STYLE}>
-      <WorkspaceHeader title={catalog.value?.name ?? t('title')} onWorkspace={home} onRefresh={refreshWorkspace} />
+    </main> : reader ?? <main style={PANEL_STYLE}>
+      <WorkspaceHeader title={catalog.value?.name ?? workspaceTitle} scope={scope} onWorkspace={home} onRefresh={refreshWorkspace} />
       {catalog.error ? <p data-snl-local-read-error="catalog" role="alert">{t('failed', { message: catalog.error })}</p> : null}
       {current?.error ? <p data-snl-local-read-error="snapshot" role="alert">{t('failed', { message: current.error })}</p> : <p role="status">{t('loading')}</p>}
     </main>}
   </>;
 }
 
+class RemoteRenderBoundary extends React.Component<{
+  snapshot: FrozenReaderSnapshot;
+  children: React.ReactNode;
+  fallback: React.ReactNode;
+}, { failed: boolean; snapshot: FrozenReaderSnapshot }> {
+  state = { failed: false, snapshot: this.props.snapshot };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  static getDerivedStateFromProps(
+    { snapshot }: { snapshot: FrozenReaderSnapshot }, state: { snapshot: FrozenReaderSnapshot },
+  ): { failed: boolean; snapshot: FrozenReaderSnapshot } | null {
+    return snapshot === state.snapshot ? null : { failed: false, snapshot };
+  }
+
+  render(): React.ReactNode {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
 /** Only the browser I/O port differs; the actual header is the Extension component. */
-function WorkspaceHeader({ title, onWorkspace, onRefresh }: { title: string; onWorkspace?: () => void; onRefresh(): void }): React.ReactElement {
+function WorkspaceHeader({ title, scope, onWorkspace, onRefresh }: { title: string; scope: string; onWorkspace?: () => void; onRefresh(): void }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
   const [preferences] = useState(() => createBrowserPreferences({ language: document.documentElement.lang === 'zh-CN' ? 'zh-CN' : 'en', color_scheme: 'light', motion: 'reduced' }, 'local-workspace', BUILT_IN_LANGUAGE_CATALOG.map(language => ({ id: language.id, display_name: language.display_name }))));
   useEffect(() => { preferences.load(); }, [preferences]);
@@ -142,6 +189,6 @@ function WorkspaceHeader({ title, onWorkspace, onRefresh }: { title: string; onW
     if (msg.type === 'nav.refresh') onRefresh();
     else preferences.handle(msg);
   } };
-  return <PanelHeader title={title} vsApi={api} host={{ showRefresh: true, status: t('readonly'), statusTitle: t('scope'),
+  return <PanelHeader title={title} vsApi={api} host={{ showRefresh: true, status: t('readonly'), statusTitle: scope,
     back: onWorkspace ? { label: t('workspace'), onClick: onWorkspace } : undefined }} />;
 }

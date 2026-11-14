@@ -6,7 +6,7 @@ import { makeEntryEnvelope, makeMacroEnvelope, makePackageManifest, packageManif
 const state = vi.hoisted(() => ({ root: null as any, panels: [] as any[], calls: [] as string[], watchers: [] as any[], fail: '', hold: null as null | (() => Promise<void>), folders: [] as any[], exports: [] as any[], gate: null as null | ((op: string, uri: any) => Promise<void>) }));
 vi.mock('vscode', async () => {
  const fs = await import('node:fs/promises'); const path = await import('node:path');
- const uri = (p: string, scheme = 'test', authority = 'authority'): any => ({ scheme, authority, path: p, fsPath: p, toString: () => scheme+'://'+authority+p, with: (c: any) => uri(c.path ?? p, c.scheme ?? scheme, c.authority ?? authority) });
+ const uri = (p: string, scheme = 'test', authority = 'authority'): any => ({ scheme, authority, path: p.replaceAll('\\', '/'), fsPath: p, toString: () => scheme+'://'+authority+p.replaceAll('\\', '/'), with: (c: any) => uri(c.path ?? p, c.scheme ?? scheme, c.authority ?? authority) });
  const transport = async (op: string, u: any, run: () => Promise<any>) => {
   state.calls.push(op+':'+u.path.split('/.SNL_Doc/')[1]);
   await state.gate?.(op,u);

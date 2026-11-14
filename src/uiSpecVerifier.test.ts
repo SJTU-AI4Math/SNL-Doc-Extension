@@ -167,7 +167,7 @@ describe('UI specification workspace verifier', () => {
 
   it('rejects symlinks in intermediate asset path components', async () => {
     const alias = join(workspace, '.SNL_Doc', 'assets', 'alias');
-    symlinkSync('.', alias, 'dir');
+    symlinkSync(join(workspace, '.SNL_Doc', 'assets'), alias, process.platform === 'win32' ? 'junction' : 'dir');
     try {
       await rejectsMutation(imageEntryPath(), (envelope) => {
         envelope.entry.content.markdown = envelope.entry.content.markdown.replace(

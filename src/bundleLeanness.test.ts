@@ -33,7 +33,8 @@ const RENDERS_MATH = new Set([
   'snlGraph',
   'main',
   'createMacro',
-  'packagePanel'
+  'packagePanel',
+  'remoteReader'
 ]);
 
 /**
@@ -82,6 +83,7 @@ const EXPECTED_PRODUCTION_OUTPUTS = [
   'createRelationship:createRelationship.js',
   'snlGraph:snlGraph.js',
   'snoogl:snoogl.js',
+  'remoteReader:remoteReader.js',
   'exportOptions:exportOptions.js'
 ];
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { edgePath, fitGraphViewport, graphContentBounds, layout } from './SnlGraphApp';
+import { fitGraphViewport, graphContentBounds, layout } from './SnlGraphApp';
+import { createGraphEdgeRouter } from '../../src/graphLayout';
 
 const node = (id: string, packageId = 'logic', title = 'Wide title '.repeat(10)) => ({
   id, packageId, title, kind: 'Theorem', kindId: 'theorem', color: '#abc', background: '#123'
@@ -104,12 +105,12 @@ describe('compact static title-card occupancy', () => {
       expect(bands.edges[i].waypoints[j].y).toBeCloseTo(p.centerY + r * Math.sin(angle), 7);
     }));
   });
-  it.each([['radial-inward', 'bands'], ['radial-outward', 'bands'], ['radial-inward', 'rings'], ['radial-outward', 'rings']] as const)('%s/%s fits the actual endpoint routes and all controls, ignoring dummy and decorative size', (mode, packing) => {
+  it.each([['radial-inward', 'bands'], ['radial-outward', 'bands'], ['radial-inward', 'rings'], ['radial-outward', 'rings']] as const)('%s/%s fits rendered routes and all controls, ignoring decorative size', (mode, packing) => {
     const nodes = [node('a'), node('b', 'other'), node('c', 'third')];
     const result = layout(nodes, [edge('a', 'b'), edge('b', 'c'), edge('a', 'c'), edge('b', 'b')], mode, packing);
     const bounds = graphContentBounds(result);
     expect(graphContentBounds({ ...result, width: 1e9, height: 1e9 })).toEqual(bounds);
-    expect(graphContentBounds({ ...result, edges: result.edges.map(e => ({ ...e, waypoints: [{ x: -1e9, y: 1e9 }] })) })).toEqual(bounds);
+    const route = createGraphEdgeRouter(result);
     const hull = { minX: Math.min(...result.nodes.map(n => n.x - 2)), minY: Math.min(...result.nodes.map(n => n.y - 2)),
       maxX: Math.max(...result.nodes.map(n => n.x + n.w + 2)), maxY: Math.max(...result.nodes.map(n => n.y + n.h + 2)) };
     const vp = fitGraphViewport(bounds, 700, 500);
@@ -120,8 +121,7 @@ describe('compact static title-card occupancy', () => {
     expect(shifted.x + dx * vp.scale).toBeCloseTo(vp.x);
     expect(shifted.y + dy * vp.scale).toBeCloseTo(vp.y);
     for (const e of result.edges) {
-      const d = edgePath(result.nodes.find(n => n.id === e.from)!, result.nodes.find(n => n.id === e.to)!, e.waypoints,
-        { fromShape: 'title', toShape: 'title' }, result).d;
+      const { d } = route(e);
       const values = d.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)!.map(Number);
       for (let i = 0; i < values.length; i += 2) {
         hull.minX = Math.min(hull.minX, values[i]); hull.maxX = Math.max(hull.maxX, values[i]);

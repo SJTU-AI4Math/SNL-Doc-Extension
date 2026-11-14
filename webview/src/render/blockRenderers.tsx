@@ -251,6 +251,7 @@ function renderEnumerate(
   return (
     <ol
       className="snl-block snl-block-enumerate"
+      role="list"
       start={start}
       style={listStyle ? { listStyleType: listStyle } : undefined}
     >
@@ -269,6 +270,17 @@ function renderEnumerate(
 }
 
 export const EnumerateRenderer: SnlBlockRenderer = (props) => renderEnumerate(props);
+
+const ListRenderer: SnlBlockRenderer = ({ node, renderChild }) => (
+  <ul className="snl-block snl-block-list" role="list">
+    {node.children.map((child, index) => (
+      <li key={index}>
+        <span className="snl-enumerate-item-marker" aria-hidden="true" />
+        <div className="snl-enumerate-item-content">{renderChild(child, index)}</div>
+      </li>
+    ))}
+  </ul>
+);
 
 /** Compatibility implementation of the Basics 0.3 table contract.
  * Options are closed over from the parameterized renderer key because the
@@ -415,6 +427,7 @@ function getSvgTemplateRenderer(): SnlBlockRenderer {
 
 const baseExtensionRenderers: SnlRendererRegistry = {
   ...defaultRenderers,
+  list: ListRenderer,
   enumerate: EnumerateRenderer,
   collapsible: CollapsibleRenderer,
   image: MissingImageRenderer

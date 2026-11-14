@@ -1,6 +1,6 @@
 import * as native from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 const seam = vi.hoisted(() => ({
@@ -138,7 +138,7 @@ describe('workspace lock generation admission (native I/O seam, not kernel paren
     const f = await fixture();
     if (kind === 'file') await fs.writeFile(f.journal, '{}');
     if (kind === 'directory') await fs.mkdir(f.journal);
-    if (kind === 'dangling symlink') await fs.symlink('missing-target', f.journal);
+    if (kind === 'dangling symlink') await fs.symlink(join(dirname(f.journal), 'missing-target'), f.journal, process.platform === 'win32' ? 'junction' : 'dir');
     const open = vi.fn(async (path: string) => fs.open(path, 'wx', 0o600));
     seam.open = open;
     const task = vi.fn(async () => undefined);

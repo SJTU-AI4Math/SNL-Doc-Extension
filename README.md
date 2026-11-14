@@ -10,6 +10,11 @@ The extension ships separate reading, management, search, graph, authoring,
 and HTML-export surfaces; see [`docs/extension-feature-inventory.md`](docs/extension-feature-inventory.md)
 for the current command and panel inventory.
 
+In a multi-root VS Code workspace, run **SNL: Select Workspace Data Source**
+to choose the folder containing the data you want to read or edit. The choice
+is saved for that workspace and takes effect after reloading the window.
+Save open SNL panel drafts before switching.
+
 ## Install a release
 
 Download the `.vsix` file from the matching GitHub Release. In VS Code, open
@@ -58,9 +63,12 @@ Then launch the extension from VS Code (F5 / Run Extension). See
 - Both a single HTML file and a directory work offline via `file://`; no network
   Monaco loader is required. Directory replacement only accepts empty targets or
   precisely exporter-owned prior generations, never unrelated project files.
-- The first implementation is local-file/single-root oriented; unsupported or
-  ambiguous workspace roots/providers are rejected. UUID schema work belongs
-  to 0.2.0 and is not part of this candidate.
+- Source inclusion uses the selected local SNL data source. If that source is
+  removed or changed, open the document again before exporting.
+
+## Remote Reader
+
+Run Toolkit's `snl serve-remote` on a machine with an SNL workspace and a TLS certificate. In VS Code, run **SNL: Open Remote Reader**, then enter the service's HTTPS origin and Reader token. VS Code stores the token in SecretStorage for that origin. Open a Library to read Entries and Macros, use SNoogL, or explore its relationship graph. Use **Refresh** to request current data. Local authoring continues through **SNL: Select Workspace Data Source**.
 
 ## Derived caches
 

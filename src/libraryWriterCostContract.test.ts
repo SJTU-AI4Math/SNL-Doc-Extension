@@ -9,9 +9,9 @@ const state = vi.hoisted(() => ({ base: '', calls: [] as string[], fail: '' }));
 vi.mock('vscode', async () => {
   const fs = await import('node:fs/promises');
   const path = await import('node:path');
-  const uri = (p: string): any => ({ scheme: 'test', authority: 'cost', path: p, fsPath: p, toString: () => 'test://cost' + p });
+  const uri = (p: string): any => ({ scheme: 'test', authority: 'cost', path: p.replaceAll('\\', '/'), fsPath: p, toString: () => 'test://cost' + p.replaceAll('\\', '/') });
   const run = async (op: string, u: any, task: () => Promise<any>) => {
-    const relative = path.relative(state.base, u.path);
+    const relative = path.relative(state.base, u.path).split(path.sep).join('/');
     state.calls.push(op + ':' + relative);
     if (state.fail && relative === state.fail) throw Object.assign(new Error('denied'), { code: 'NoPermissions' });
     try { return await task(); } catch (e: any) { if (e.code === 'ENOENT') e.code = 'FileNotFound'; throw e; }
@@ -145,7 +145,7 @@ it.each(['receipt-digest', 'future-version', 'kind-schema', 'active-system', 'mi
   }
   if (defect === 'symlink-directory') {
     await rename(join(state.base, 'entries'), join(state.base, 'saved-entries'));
-    await symlink(join(state.base, 'saved-entries'), join(state.base, 'entries'));
+    await symlink(join(state.base, 'saved-entries'), join(state.base, 'entries'), process.platform === 'win32' ? 'junction' : 'dir');
   }
   await f.put('.SNL_Doc/config.json', config);
   expect(await writeLibraryGraph(root, 'notes', graph)).toMatchObject({ status: 'error' });

@@ -61,7 +61,7 @@ it('validates empty graphs, cycles, adversarial IDs and exact node/edge sets', (
 it('rejects unsafe path owners/symlinks without overwriting outside files', async () => {
   for(const owner of ['../escape','a/b','..']) await expect(getLibraryGraphLayout(root,graphLayoutInput(owner,'en',nodes,edges))).rejects.toThrow();
   const outside=path.join(root,'outside'); await fs.mkdir(outside);
-  await fs.symlink(outside,path.join(root,'.SNL_Doc/libraries/one/.cache'));
+  await fs.symlink(outside,path.join(root,'.SNL_Doc/libraries/one/.cache'),process.platform === 'win32' ? 'junction' : 'dir');
   await expect(getLibraryGraphLayout(root,graphLayoutInput('one','en',nodes,edges))).rejects.toThrow();
   expect(await fs.readdir(outside)).toEqual([]);
   await expect(getLibraryGraphLayout(root,graphLayoutInput(null,'en',nodes,edges))).rejects.toThrow();

@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { constants as fsConstants, promises as fs } from 'node:fs';
+import { constants as fsConstants, existsSync, promises as fs } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type * as vscode from 'vscode';
 const SVG_ASSET_BASE_IDENTITY = 'workspace:.SNL_Doc/assets' as const;
 import { withWorkspaceDataLock } from './workspaceDataLock';
 import { validateSvgTemplateForPersistence } from './svgTemplateHostValidation';
+import { publishWindowsSvgAssets } from './svgMacroAssetsWindows';
 
 const MAX_SVG_BYTES = 1024 * 1024;
 const MAX_MANIFEST_BYTES = 256 * 1024;
@@ -121,7 +122,7 @@ function heldDirectoryPath(handle: Awaited<ReturnType<typeof fs.open>>, fallback
 
 async function openSvgDirectoryAuthority(workspaceRoot: string): Promise<SvgDirectoryAuthority> {
   if (process.platform !== 'linux') {
-    throw new Error('Secure SVG Macro Asset publication requires Linux descriptor-relative filesystem authority.');
+    throw new Error('Secure SVG Macro Asset publication is available on Linux and Windows.');
   }
   const handles: Array<Awaited<ReturnType<typeof fs.open>>> = [];
   try {
@@ -188,7 +189,9 @@ async function quarantineOwned(path: string, expected: FileIdentity): Promise<vo
 const O_TMPFILE = 0o20200000;
 
 function linkAnonymousFile(handle: { fd: number }, directoryHandle: { fd: number }, fileName: string): { ok: boolean; detail: string } {
-  const linker = '/bin/ln';
+  // Ubuntu can install uutils as ln while retaining GNU ln as gnuln. The
+  // latter preserves the inherited proc-fd link instead of canonicalizing it.
+  const linker = existsSync('/usr/bin/gnuln') ? '/usr/bin/gnuln' : '/bin/ln';
   const result = spawnSync(linker, [
     '-L', '-T', '/proc/self/fd/3', `/proc/self/fd/4/${fileName}`
   ], {
@@ -239,7 +242,9 @@ async function writeImmutable(
         await verifyExactFile(path, value, directoryPath, directoryIdentity);
         return null;
       } catch (verificationReason) {
-        if (link.detail) void link.detail;
+        if ((verificationReason as NodeJS.ErrnoException).code === 'ENOENT') {
+          throw new Error(`Could not publish SVG asset through the Linux linker: ${link.detail.trim()}`, { cause: verificationReason });
+        }
         throw verificationReason;
       }
     }
@@ -401,6 +406,14 @@ async function writeWorkspaceSvgMacroAssetsUnlocked(
     editor: { source: sourcePath, source_revision: `sha256:${sourceDigest}`, manifest: manifestPath }
   };
 
+  if (process.platform === 'win32') {
+    await publishWindowsSvgAssets(options.workspaceRoot.fsPath, [
+      { name: sourceFile, bytes: sourceBytes },
+      { name: templateFile, bytes: templateBytes },
+      { name: manifestFile, bytes: manifestBytes },
+    ]);
+    return { sourcePath, manifestPath, projection };
+  }
   const authority = await openSvgDirectoryAuthority(options.workspaceRoot.fsPath);
   const { svgRoot, authorityRoot, svgIdentity: svgRootIdentity, svgHandle: directoryHandle } = authority;
   const createdPaths: Array<{ path: string; identity: FileIdentity }> = [];

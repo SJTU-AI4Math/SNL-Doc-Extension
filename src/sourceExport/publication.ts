@@ -2,6 +2,7 @@ import { promises as fs, type Stats } from 'node:fs';
 import * as path from 'node:path';
 
 const transactions = new Map<string, Promise<void>>();
+let admission = Promise.resolve();
 const same = (a: Stats | undefined, b: Stats | undefined) => !a || !b ? a === b : a.dev === b.dev && a.ino === b.ino && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
 async function existing(file: string): Promise<Stats | undefined> {
   try { return await fs.lstat(file); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
@@ -29,53 +30,69 @@ export async function publishSourceExport(destinationPath: string, files: Array<
   const frozen = files.map(f => ({ path: f.path, bytes: Buffer.from(f.bytes) }));
   const requested = path.resolve(destinationPath);
   if (path.dirname(requested) === requested) throw new Error('Refusing to publish over filesystem root');
-  const parent = await fs.realpath(path.dirname(requested));
-  const destination = path.join(parent, path.basename(requested));
-  const previous = transactions.get(destination) ?? Promise.resolve();
-  const task = previous.catch(() => {}).then(async () => {
-    const parentReal = await fs.realpath(parent), parentStat = await fs.stat(parent);
-    if (!parentStat.isDirectory()) throw new Error('Publication parent is not a directory');
-    const old = await existing(destination);
-    if (old?.isSymbolicLink()) throw new Error('Refusing symlink publication destination');
-    if (old && (inline ? !old.isFile() : !old.isDirectory())) throw new Error('Publication destination type mismatch');
-    const stage = await fs.mkdtemp(path.join(parent, '.snl-export-'));
-    const tree = path.join(stage, 'new'), backup = path.join(stage, 'previous');
-    let backedUp = false, committed = false, preserveStage = false;
-    let primary: unknown;
+  // Resolve and enqueue in call order. Independent realpath requests can
+  // finish out of order, even for two publications to the same destination.
+  const queued = admission.then(async () => {
+    const parent = await fs.realpath(path.dirname(requested));
+    const destination = path.join(parent, path.basename(requested));
+    const key = process.platform === 'win32' ? destination.toLowerCase() : destination;
+    const previous = transactions.get(key) ?? Promise.resolve();
+    const task = previous.catch(() => {}).then(() => publishGeneration(parent, destination, frozen, inline, beforeCommit));
+    transactions.set(key, task);
+    return { key, task };
+  });
+  admission = queued.then(() => {}, () => {});
+  const { key, task } = await queued;
+  try { await task; } finally { if (transactions.get(key) === task) transactions.delete(key); }
+}
+
+async function publishGeneration(
+  parent: string,
+  destination: string,
+  frozen: Array<{ path: string; bytes: Buffer }>,
+  inline: boolean,
+  beforeCommit?: () => Promise<void>,
+): Promise<void> {
+  const parentReal = await fs.realpath(parent), parentStat = await fs.stat(parent);
+  if (!parentStat.isDirectory()) throw new Error('Publication parent is not a directory');
+  const old = await existing(destination);
+  if (old?.isSymbolicLink()) throw new Error('Refusing symlink publication destination');
+  if (old && (inline ? !old.isFile() : !old.isDirectory())) throw new Error('Publication destination type mismatch');
+  const stage = await fs.mkdtemp(path.join(parent, '.snl-export-'));
+  const tree = path.join(stage, 'new'), backup = path.join(stage, 'previous');
+  let backedUp = false, committed = false, preserveStage = false;
+  let primary: unknown;
+  try {
+    await fs.mkdir(tree);
+    for (const file of frozen) {
+      const output = inline ? path.join(tree, 'index.html') : path.join(tree, file.path);
+      await fs.mkdir(path.dirname(output), { recursive: true });
+      const handle = await fs.open(output, 'wx', 0o600);
+      try { await handle.writeFile(file.bytes); await handle.sync(); } finally { await handle.close(); }
+    }
+    await beforeCommit?.();
+    const nowParent = await fs.stat(parent);
+    if (await fs.realpath(parent) !== parentReal || nowParent.dev !== parentStat.dev || nowParent.ino !== parentStat.ino) throw new Error('Publication parent changed');
+    if (!same(old, await existing(destination))) throw new Error('Publication destination changed during staging');
+    if (old && !inline) { await fs.rename(destination, backup); backedUp = true; }
     try {
-      await fs.mkdir(tree);
-      for (const file of frozen) {
-        const output = inline ? path.join(tree, 'index.html') : path.join(tree, file.path);
-        await fs.mkdir(path.dirname(output), { recursive: true });
-        const handle = await fs.open(output, 'wx', 0o600);
-        try { await handle.writeFile(file.bytes); await handle.sync(); } finally { await handle.close(); }
+      await fs.rename(inline ? path.join(tree, 'index.html') : tree, destination);
+      committed = true;
+    } catch (error) {
+      if (backedUp) {
+        if (await existing(destination)) { preserveStage = true; throw new AggregateError([error], `Publication failed; concurrent destination preserved; previous export retained at ${backup}`); }
+        try { await fs.rename(backup, destination); backedUp = false; }
+        catch (rollback) { preserveStage = true; throw new AggregateError([error, rollback], `Publication and rollback failed; previous export retained at ${backup}`); }
       }
-      await beforeCommit?.();
-      const nowParent = await fs.stat(parent);
-      if (await fs.realpath(parent) !== parentReal || nowParent.dev !== parentStat.dev || nowParent.ino !== parentStat.ino) throw new Error('Publication parent changed');
-      if (!same(old, await existing(destination))) throw new Error('Publication destination changed during staging');
-      if (old && !inline) { await fs.rename(destination, backup); backedUp = true; }
-      try {
-        await fs.rename(inline ? path.join(tree, 'index.html') : tree, destination);
-        committed = true;
-      } catch (error) {
-        if (backedUp) {
-          if (await existing(destination)) { preserveStage = true; throw new AggregateError([error], `Publication failed; concurrent destination preserved; previous export retained at ${backup}`); }
-          try { await fs.rename(backup, destination); backedUp = false; }
-          catch (rollback) { preserveStage = true; throw new AggregateError([error, rollback], `Publication and rollback failed; previous export retained at ${backup}`); }
-        }
-        throw error;
-      }
-    } catch (error) { primary = error; throw error; } finally {
-      if (!preserveStage) {
-        try { await fs.rm(stage, { recursive: true, force: true }); }
-        catch (cleanup) {
-          if (committed) process.emitWarning(`Source export published; staging cleanup failed: ${stage}`, { code: 'SNL_EXPORT_CLEANUP' });
-          else throw new AggregateError(primary === undefined ? [cleanup] : [primary, cleanup], 'Source publication failed and staging cleanup failed');
-        }
+      throw error;
+    }
+  } catch (error) { primary = error; throw error; } finally {
+    if (!preserveStage) {
+      try { await fs.rm(stage, { recursive: true, force: true }); }
+      catch (cleanup) {
+        if (committed) process.emitWarning(`Source export published; staging cleanup failed: ${stage}`, { code: 'SNL_EXPORT_CLEANUP' });
+        else throw new AggregateError(primary === undefined ? [cleanup] : [primary, cleanup], 'Source publication failed and staging cleanup failed');
       }
     }
-  });
-  transactions.set(destination, task);
-  try { await task; } finally { if (transactions.get(destination) === task) transactions.delete(destination); }
+  }
 }

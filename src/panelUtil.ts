@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { getWorkspaceSource } from './workspaceSource';
 import { type Trace } from './trace';
 import * as fs from 'fs';
 import { extension_preferences_runtime } from './preferences';
@@ -49,7 +50,8 @@ export function buildPanelHtml(
   webview: vscode.Webview,
   entry: string,
   title: string,
-  ownerDisposables?: vscode.Disposable[]
+  ownerDisposables?: vscode.Disposable[],
+  options: { detached?: boolean } = {}
 ): string {
   const scriptUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, 'media', 'webview', `${entry}.js`)
@@ -71,9 +73,9 @@ export function buildPanelHtml(
   const csp = panel_content_security_policy(nonce, webview.cspSource);
   const scriptType = panel_script_type_attribute(entry);
 
-  const workspaceRoot = firstWorkspaceFolder();
+  const workspaceRoot = options.detached ? undefined : firstWorkspaceFolder();
   const assetCacheRoot = get_preferences_asset_cache_root();
-  const preferencesDisposable = register_preferences_webview(webview, workspaceRoot ? {
+  const preferencesDisposable = options.detached ? undefined : register_preferences_webview(webview, workspaceRoot ? {
     read: () => readWorkspaceSupportedLanguages(workspaceRoot),
     add: async (input: unknown) => {
       const result = await addWorkspaceSupportedLanguage(workspaceRoot, input);
@@ -95,7 +97,7 @@ export function buildPanelHtml(
       baseIdentity
     })
   } : undefined);
-  ownerDisposables?.push(preferencesDisposable);
+  if (preferencesDisposable) ownerDisposables?.push(preferencesDisposable);
   const preferences = extension_preferences_runtime.query_environment();
   const htmlAttributes = preference_html_attributes(preferences);
   const blackLogoUri = webview.asWebviewUri(
@@ -165,9 +167,9 @@ export function webviewLocalResourceRoots(extensionUri: vscode.Uri): vscode.Uri[
   return roots;
 }
 
-/** Helper: the first workspace folder URI, or undefined when none open. */
+/** Active SNL source (the first folder by default). */
 export function firstWorkspaceFolder(): vscode.Uri | undefined {
-  return vscode.workspace.workspaceFolders?.[0]?.uri;
+  return getWorkspaceSource();
 }
 
 /**

@@ -76,7 +76,7 @@ describe('complete artifact publication', () => {
   });
   it('rejects symlink destination without changing its target', async () => {
     const target = path.join(root, 'actual'); await fs.mkdir(target); await fs.writeFile(path.join(target, 'prior'), 'keep');
-    const dest = path.join(root, 'link'); await fs.symlink(target, dest);
+    const dest = path.join(root, 'link'); await fs.symlink(target, dest, process.platform === 'win32' ? 'junction' : 'dir');
     await expect(publishSourceExport(dest, [file('index.html', 'new')], false)).rejects.toThrow(/symlink/);
     expect(await fs.readFile(path.join(target, 'prior'), 'utf8')).toBe('keep'); expect((await fs.lstat(dest)).isSymbolicLink()).toBe(true);
   });
